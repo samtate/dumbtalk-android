@@ -1,5 +1,7 @@
 package dev.dumbtalk.core.demo
 
+import dev.dumbtalk.core.Attachment
+import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
@@ -230,6 +232,15 @@ class DemoService(
         }
     }
 
+    /** A 1×1 PNG, enough to exercise the viewer flow. */
+    override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String {
+        val file = java.io.File.createTempFile("demo-photo", ".png").apply { deleteOnExit() }
+        file.writeBytes(java.util.Base64.getDecoder().decode(
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
+        ))
+        return file.absolutePath
+    }
+
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> = lock.withLock {
         messages.values.flatten()
             .filter { conversation == null || it.conversationId == conversation.id }
@@ -283,13 +294,15 @@ class DemoService(
                 members = members.mapIndexed { index, name -> Member("$remote-$index", name) },
             )
             messages[conversationId] = lines.map { (age, sender, text) ->
+                val photo = text == "PHOTO"
                 Message(
                     id = "${id.key}-${nextId++}",
                     conversationId = conversationId,
                     sentAt = minutesAgo(age),
                     direction = if (sender == null) Direction.OUTGOING else Direction.INCOMING,
                     sender = sender ?: "You",
-                    text = text,
+                    text = text.takeUnless { photo },
+                    attachments = if (photo) listOf(Attachment("photo-$nextId", AttachmentKind.IMAGE, contentType = "image/png", size = 70)) else emptyList(),
                     receipt = if (sender == null) Receipt(Receipt.State.READ) else null,
                 )
             }.toMutableList()
@@ -299,6 +312,7 @@ class DemoService(
                 chat("maya", "Maya Chen", ConversationKind.DIRECT, unread = 2, favourite = true, lines = arrayOf(
                     Triple(40, "Maya Chen", "Are we still on for tomorrow?"),
                     Triple(38, null, "Yes! 10am?"),
+                    Triple(20, "Maya Chen", "PHOTO"),
                     Triple(12, "Maya Chen", "Perfect! Meet at the station at 10."),
                 ))
                 chat("hikers", "Sunday Hikers", ConversationKind.GROUP, members = listOf("Alex", "Sam", "Priya"), lines = arrayOf(
