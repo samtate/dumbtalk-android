@@ -1,5 +1,10 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.serviceColor
+import dev.dumbtalk.app.ui.avatarTint
+import androidx.compose.ui.graphics.lerp
+import androidx.compose.ui.graphics.Color
+import dev.dumbtalk.app.ui.forDisplay
 import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -84,9 +89,17 @@ internal fun MessageList(
                 val showSender = conversation.kind == ConversationKind.GROUP &&
                     message.direction == Direction.INCOMING &&
                     (previous?.sender != message.sender || date != previousDate)
-                if (showSender) BasicText(message.sender.orEmpty(), style = Type.small.copy(color = Palette.sender), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                // Each person keeps one colour: their avatar tint. Your own
+                // messages take the service's colour.
+                val tint = when {
+                    message.direction == Direction.OUTGOING -> serviceColor(conversation.serviceId)
+                    conversation.kind == ConversationKind.GROUP -> avatarTint(message.sender ?: conversation.title)
+                    else -> avatarTint(conversation.title)
+                }
+                if (showSender) BasicText(message.sender.orEmpty().forDisplay(), style = Type.small.copy(color = tint), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                 Bubble(
                     message,
+                    tint,
                     time.format(Instant.ofEpochMilli(message.sentAt).atZone(zone)),
                     maxBubble,
                     focusRequester = if (message.id == selectedId) selectedFocus else null,
@@ -114,6 +127,7 @@ private fun DayDivider(label: String) {
 @Composable
 private fun Bubble(
     message: Message,
+    tint: Color,
     time: String,
     maxWidth: androidx.compose.ui.unit.Dp,
     focusRequester: FocusRequester?,
@@ -131,26 +145,27 @@ private fun Bubble(
                 .padding(vertical = 2.dp)
                 .widthIn(max = maxWidth)
                 .focusCard(
-                    onOpen, Square, SolidColor(if (outgoing) Palette.outgoing else Palette.incoming),
-                    focusRequester, onFocus, claimsCenter = false,
+                    onOpen, Square, SolidColor(lerp(Palette.background, tint, 0.24f)),
+                    focusRequester, onFocus, idleBorder = tint.copy(alpha = 0.7f), claimsCenter = false,
                 )
                 .padding(horizontal = 7.dp, vertical = 5.dp),
         ) {
             message.forwardedFrom?.let { BasicText("Forwarded from $it", style = Type.small.copy(color = Palette.muted)) }
             message.quote?.let { quote ->
+                val quoteTint = avatarTint(quote.author)
                 Column(
                     Modifier
                         .padding(bottom = 3.dp)
-                        .border(1.dp, Palette.line, Square)
+                        .border(1.dp, quoteTint.copy(alpha = 0.6f), Square)
                         .padding(horizontal = 5.dp, vertical = 2.dp),
                 ) {
-                    BasicText(quote.author, style = Type.small.copy(color = Palette.sender, fontWeight = FontWeight.Bold))
-                    BasicText(quote.text ?: "Message", style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    BasicText(quote.author.forDisplay(), style = Type.bold(Type.small.copy(color = quoteTint)))
+                    BasicText((quote.text ?: "Message").forDisplay(), style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             val italic = message.deleted
             BasicText(
-                if (message.deleted) "This message was deleted" else messageSummary(message),
+                if (message.deleted) "This message was deleted" else messageSummary(message).forDisplay(),
                 style = Type.body.copy(
                     color = if (italic) Palette.muted else Palette.text,
                     fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
@@ -158,13 +173,13 @@ private fun Bubble(
             )
             if (message.reactions.isNotEmpty()) {
                 BasicText(
-                    message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji },
+                    message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji }.forDisplay(),
                     style = Type.body,
-                    modifier = Modifier.padding(top = 2.dp).border(1.dp, Palette.line, Square).padding(horizontal = 5.dp, vertical = 1.dp),
+                    modifier = Modifier.padding(top = 2.dp).border(1.dp, tint.copy(alpha = 0.45f), Square).padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
             val meta = buildString {
-                if (message.pinned) append("📌 ")
+                if (message.pinned) append("📌".forDisplay() + " ")
                 if (message.edited && !message.deleted) append("edited · ")
                 append(time)
                 if (outgoing) append(receiptMark(message.receipt))

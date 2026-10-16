@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.forDisplay
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -68,8 +69,8 @@ internal fun MessageActions(
         Header("Message")
         Column(Modifier.verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             Column(Modifier.fillMaxWidth().border(1.dp, Palette.line, Square).padding(7.dp)) {
-                BasicText(if (outgoing) "You" else message.sender ?: conversation.title, style = Type.label)
-                BasicText(messageSummary(message), style = Type.small.copy(color = Palette.time), maxLines = 3, overflow = TextOverflow.Ellipsis)
+                BasicText((if (outgoing) "You" else message.sender ?: conversation.title).forDisplay(), style = Type.label)
+                BasicText(messageSummary(message).forDisplay(), style = Type.preview, maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (canReact) {
                 BasicText("QUICK REACTION", style = Type.section)
@@ -87,7 +88,7 @@ internal fun MessageActions(
                                         idleBorder = if (own) Palette.focus.copy(alpha = 0.5f) else Palette.tileBorder,
                                     ),
                                 contentAlignment = Alignment.Center,
-                            ) { BasicText(emoji, style = Type.body.copy(fontSize = 18.sp)) }
+                            ) { BasicText(emoji.forDisplay(), style = Type.centered(Type.body.copy(fontSize = 21.sp, lineHeight = 21.sp))) }
                         }
                     }
                 }
@@ -117,7 +118,7 @@ internal fun MessageActions(
                         .padding(7.dp),
                 ) {
                     BasicText("MESSAGE DETAILS", style = Type.section)
-                    details.forEach { BasicText(it, style = Type.small) }
+                    details.forEach { BasicText(it.forDisplay(), style = Type.small) }
                 }
             }
             Spacer(Modifier.height(4.dp))
@@ -143,7 +144,7 @@ internal fun ChatOptions(conversation: Conversation, onClose: () -> Unit, onUpda
             )
             if (conversation.kind == ConversationKind.GROUP && conversation.members.isNotEmpty()) {
                 BasicText("MEMBERS", style = Type.section, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
-                conversation.members.forEach { BasicText(it.name, style = Type.body, modifier = Modifier.padding(vertical = 2.dp)) }
+                conversation.members.forEach { BasicText(it.name.forDisplay(), style = Type.body, modifier = Modifier.padding(vertical = 2.dp)) }
             }
         }
     }

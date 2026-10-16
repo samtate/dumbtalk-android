@@ -110,7 +110,7 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
                 trailing = {
                     BasicText(
                         if (status.connected) "On" else "Off",
-                        style = Type.small.copy(fontWeight = FontWeight.Bold, color = if (status.connected) Palette.background else Palette.muted),
+                        style = Type.bold(Type.small.copy(color = if (status.connected) Palette.background else Palette.muted)),
                         modifier = Modifier
                             .background(if (status.connected) Palette.text else Palette.background, Square)
                             .border(1.dp, if (status.connected) Palette.text else Palette.line, Square)

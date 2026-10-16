@@ -116,7 +116,7 @@ fun Header(title: String, modifier: Modifier = Modifier, trailing: @Composable (
             .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        BasicText(title, style = Type.header, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+        BasicText(title.forDisplay(), style = Type.header, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
         trailing?.invoke()
     }
     Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.line))
@@ -165,7 +165,7 @@ fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean
             if (noteToSelf) {
                 PixelIcon(PixelArt.PENCIL, size * 0.55f, tint)
             } else {
-                BasicText(initials(title), style = Type.centered(Type.label.copy(color = tint, fontWeight = FontWeight.Bold)))
+                BasicText(initials(title), style = Type.centered(Type.bold(Type.label.copy(color = tint))))
             }
         }
         // Unread count as an inverted block, like a lit display segment.
@@ -181,7 +181,7 @@ fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean
             ) {
                 BasicText(
                     if (unread > 99) "99+" else unread.toString(),
-                    style = Type.centered(Type.small.copy(color = Palette.background, fontWeight = FontWeight.Bold)),
+                    style = Type.centered(Type.bold(Type.small.copy(color = Palette.background))),
                 )
             }
         }

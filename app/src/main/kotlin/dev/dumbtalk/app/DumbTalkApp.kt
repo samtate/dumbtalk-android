@@ -1,5 +1,6 @@
 package dev.dumbtalk.app
 
+import dev.dumbtalk.app.ui.Fonts
 import android.app.Application
 import android.os.Build
 import dev.dumbtalk.app.background.ConnectionService
@@ -30,6 +31,9 @@ open class DumbTalkApp : Application() {
     lateinit var notifier: MessageNotifier
         private set
 
+    /** Robolectric can't build custom font fallback chains. */
+    protected open val usePixelFallbackFonts = true
+
     /** The messaging services, in inbox order. Tests swap in demo services. */
     protected open fun createServices(): List<MessagingService> {
         val device = "DumbTalk (${Build.MODEL})"
@@ -53,6 +57,7 @@ open class DumbTalkApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
+        Fonts.init(this, pixelFallback = usePixelFallbackFonts)
         registry = ServiceRegistry(createServices())
         inbox = InboxModel(registry, scope)
 

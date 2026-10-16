@@ -92,7 +92,7 @@ fun PixelIcon(art: PixelArt, size: Dp, color: Color, modifier: Modifier = Modifi
 }
 
 /** Toned-down brand colours, so services stay recognisable on black. */
-private fun serviceColor(id: ServiceId) = when (id) {
+fun serviceColor(id: ServiceId) = when (id) {
     ServiceId.SIGNAL -> Color(0xFF7FA2F0)
     ServiceId.TELEGRAM -> Color(0xFF7CC4EA)
     ServiceId.WHATSAPP -> Color(0xFF7FD6A0)

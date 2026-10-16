@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.forDisplay
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -149,7 +150,7 @@ fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () 
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 BasicText(
-                    (if (conversation.isFavourite) "★ " else "") + conversation.title,
+                    ((if (conversation.isFavourite) "★ " else "") + conversation.title).forDisplay(),
                     style = Type.title.copy(fontWeight = FontWeight.Normal),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -182,11 +183,11 @@ private fun previewText(conversation: Conversation) = buildAnnotatedString {
     val sender = when {
         message.direction == Direction.OUTGOING -> "You"
         conversation.kind == ConversationKind.GROUP -> firstName(message.sender) ?: "Someone"
-        else -> conversation.title
+        else -> conversation.title.forDisplay()
     }
     // Regular weight: bold dot matrix smears at preview size.
     withStyle(SpanStyle(color = Palette.sender)) { append("$sender: ") }
-    append(messageSummary(message))
+    append(messageSummary(message).forDisplay())
     val receipt = message.receipt?.takeIf { message.direction == Direction.OUTGOING }
     if (receipt != null) {
         val colour = if (receipt.state == Receipt.State.READ) Palette.focus else Palette.muted

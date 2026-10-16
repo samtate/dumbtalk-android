@@ -99,4 +99,7 @@ secrets) or `telegram.api_id`/`telegram.api_hash` in `local.properties`.
 
 AGPL-3.0. The Signal integration builds on AGPL-licensed Signal code.
 
-The interface font is "Dot Matrix" by Svein Kåre Gunnarson (Dionaea Fonts), distributed as freeware.
+The interface font is "Dot Matrix" by Svein Kåre Gunnarson (Dionaea Fonts), distributed as
+freeware. Characters it lacks (accents, symbols, emoji, other scripts) use a subset of
+[GNU Unifont](https://unifoundry.com/unifont/) 17.0.05, dual-licensed under the SIL Open Font
+License 1.1 and GPL 2+ with the font embedding exception.
