@@ -17,7 +17,7 @@ import android.graphics.drawable.Icon
 import android.net.Uri
 import dev.dumbtalk.app.MainActivity
 import dev.dumbtalk.app.R
-import dev.dumbtalk.app.screens.messageSummary
+import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Message

@@ -1,12 +1,7 @@
 package dev.dumbtalk.app
 
-import android.Manifest
 import android.content.Intent
-import android.content.pm.PackageManager
-import android.net.Uri
 import android.os.Bundle
-import android.os.PowerManager
-import android.provider.Settings
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -23,15 +18,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
 import androidx.lifecycle.lifecycleScope
+import dev.dumbtalk.app.background.BackgroundPermissions
 import dev.dumbtalk.app.background.MessageNotifier
 import dev.dumbtalk.app.background.Visibility
-import kotlinx.coroutines.flow.first
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withTimeoutOrNull
-import androidx.compose.runtime.saveable.rememberSaveableStateHolder
-import androidx.compose.ui.Modifier
 import dev.dumbtalk.app.screens.ChatScreen
 import dev.dumbtalk.app.screens.InboxScreen
 import dev.dumbtalk.app.screens.MenuScreen
@@ -44,15 +37,19 @@ import dev.dumbtalk.app.ui.LocalSoftkeys
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyBar
 import dev.dumbtalk.app.ui.SoftkeyController
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 class MainActivity : ComponentActivity() {
     private val softkeys = SoftkeyController()
     private val navigator = Navigator()
+    private val permissions = BackgroundPermissions(this)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as DumbTalkApp
-        askForBackgroundPermissions()
+        permissions.ask()
         openFromNotification(intent)
         setContent {
             DumbTalkTheme {
@@ -128,33 +125,6 @@ class MainActivity : ComponentActivity() {
             navigator.popToRoot()
             navigator.openChat(conversation)
         }
-    }
-
-    /**
-     * Notifications need permission on Android 13+, and staying connected in
-     * Doze needs a battery-optimisation exemption. Ask once each.
-     */
-    private fun askForBackgroundPermissions() {
-        val prefs = getSharedPreferences("setup", MODE_PRIVATE)
-        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
-            !prefs.getBoolean("asked-notifications", false)
-        ) {
-            prefs.edit().putBoolean("asked-notifications", true).apply()
-            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
-            return
-        }
-        val power = getSystemService(PowerManager::class.java)
-        if (!power.isIgnoringBatteryOptimizations(packageName) && !prefs.getBoolean("asked-battery", false)) {
-            prefs.edit().putBoolean("asked-battery", true).apply()
-            runCatching {
-                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
-            }
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
-        askForBackgroundPermissions()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =

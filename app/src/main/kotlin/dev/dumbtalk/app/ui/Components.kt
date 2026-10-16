@@ -28,9 +28,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
-import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -63,7 +62,9 @@ import dev.dumbtalk.core.ServiceId
 
 /**
  * The D-pad focus treatment used everywhere: a card that draws a blue border
- * while focused and activates on centre/Enter or a tap.
+ * while focused and activates on centre/Enter or a tap. With [claimsCenter]
+ * false the centre key goes to the screen's centre softkey instead (chat
+ * bubbles, where centre means Type); taps still activate.
  *
  * This deliberately avoids `clickable`: since Compose 1.8 it refuses focus
  * in touch mode, and a touchscreen keypad phone starts in touch mode, so
@@ -77,14 +78,22 @@ fun Modifier.focusCard(
     focusRequester: FocusRequester? = null,
     onFocused: (() -> Unit)? = null,
     idleBorder: Color = Color.Transparent,
+    claimsCenter: Boolean = true,
 ): Modifier {
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
     val currentOnClick by rememberUpdatedState(onClick)
+    val softkeys = LocalSoftkeys.current
+    val owner = remember { Any() }
+    DisposableEffect(owner) { onDispose { softkeys.claimCenter(owner, false) } }
     return this
         .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
-        .onFocusChanged { if (it.isFocused) onFocused?.invoke() }
+        .onFocusChanged {
+            softkeys.claimCenter(owner, it.isFocused && claimsCenter)
+            if (it.isFocused) onFocused?.invoke()
+        }
         .onKeyEvent { event ->
+            if (!claimsCenter) return@onKeyEvent false
             if (event.key != Key.DirectionCenter && event.key != Key.Enter && event.key != Key.NumPadEnter) return@onKeyEvent false
             if (event.type == KeyEventType.KeyUp) currentOnClick()
             true

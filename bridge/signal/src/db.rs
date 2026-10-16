@@ -71,7 +71,7 @@ pub struct MessageRow {
     pub status: String,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Default)]
 pub struct ChatRow {
     pub id: String,
     pub archived: bool,

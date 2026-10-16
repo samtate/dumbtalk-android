@@ -65,15 +65,15 @@ func openStore(path string) (*msgStore, error) {
 }
 
 type row struct {
-	Chat, ID, Sender                       string
-	FromMe                                 bool
-	Ts                                     int64
-	Kind, Text, Filename, Mime             string
-	Size                                   int64
-	QuoteID, QuoteSender, QuoteText        string
-	Edited, Deleted, Forwarded             bool
-	Status, Poll                           string
-	Raw                                    []byte
+	Chat, ID, Sender                string
+	FromMe                          bool
+	Ts                              int64
+	Kind, Text, Filename, Mime      string
+	Size                            int64
+	QuoteID, QuoteSender, QuoteText string
+	Edited, Deleted, Forwarded      bool
+	Status, Poll                    string
+	Raw                             []byte
 }
 
 func b2i(value bool) int {
@@ -165,10 +165,10 @@ func (s *msgStore) bumpUnread(jid string) error {
 }
 
 type chatRow struct {
-	JID, Name                 string
-	Archived, Pinned          bool
-	MutedUntil, LastTs        int64
-	Unread                    int
+	JID, Name          string
+	Archived, Pinned   bool
+	MutedUntil, LastTs int64
+	Unread             int
 }
 
 func (s *msgStore) chats(archived bool) ([]chatRow, int, error) {

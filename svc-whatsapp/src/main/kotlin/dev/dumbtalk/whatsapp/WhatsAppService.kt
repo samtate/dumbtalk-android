@@ -1,147 +1,44 @@
 package dev.dumbtalk.whatsapp
 
 import android.util.Log
-import dev.dumbtalk.core.Capabilities
-import dev.dumbtalk.core.Conversation
-import dev.dumbtalk.core.ConversationPage
-import dev.dumbtalk.core.ConversationUpdate
-import dev.dumbtalk.core.Direction
-import dev.dumbtalk.core.Message
-import dev.dumbtalk.core.MessagePage
-import dev.dumbtalk.core.MessagingService
-import dev.dumbtalk.core.SearchResult
-import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceId
-import dev.dumbtalk.core.ServiceStatus
 import dev.dumbtalk.core.SetupStep
-import dev.dumbtalk.core.bridge.BridgeJson
-import dev.dumbtalk.core.bridge.TypingTracker
+import dev.dumbtalk.core.bridge.BridgeException
+import dev.dumbtalk.core.bridge.BridgeService
+import dev.dumbtalk.core.bridge.NativeBridge
 import dev.dumbtalk.whatsapp.go.wabridge.Client
 import dev.dumbtalk.whatsapp.go.wabridge.Listener
 import dev.dumbtalk.whatsapp.go.wabridge.Wabridge
-import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.channels.Channel
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.MutableSharedFlow
-import kotlinx.coroutines.flow.SharedFlow
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeout
-import org.json.JSONObject
 import java.io.File
 
-class WhatsAppException(message: String) : Exception(message)
-
 /**
- * WhatsApp as a linked device, through the Go bridge (whatsmeow). The bridge
- * stores chats and messages itself; this class maps its JSON to the contract.
+ * WhatsApp as a linked device, through the Go bridge on whatsmeow. Links by
+ * QR, or by phone number with a pairing code (which works with WhatsApp on
+ * the same phone).
  */
-class WhatsAppService(
-    private val dataDir: File,
-    private val deviceName: String,
-    private val scope: CoroutineScope,
-) : MessagingService {
-    override val id = ServiceId.WHATSAPP
+class WhatsAppService(dataDir: File, deviceName: String, scope: CoroutineScope) :
+    BridgeService(ServiceId.WHATSAPP, scope) {
 
-    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
-    override val events: SharedFlow<ServiceEvent> = mutableEvents
-
-    private val clientReady = CompletableDeferred<Client>()
-    private var linkEvents = Channel<Pair<String, JSONObject>>(Channel.UNLIMITED)
-    private val typing = TypingTracker()
-    private val json = BridgeJson(id, typing::names)
-
-    private val listener = object : Listener {
-        override fun onEvent(kind: String, payload: String) = handle(kind, JSONObject(payload))
-    }
+    /** Set once the bridge has started; [bridge] calls wait for that. */
+    private lateinit var client: Client
 
     init {
-        scope.launch(Dispatchers.IO) {
-            runCatching { Wabridge.newClient(dataDir.absolutePath, deviceName, listener) }
-                .onSuccess { client ->
-                    clientReady.complete(client)
-                    if (client.isLinked) runCatching { client.connect() }.onFailure { Log.w(TAG, "connect failed", it) }
-                }
-                .onFailure {
-                    Log.e(TAG, "WhatsApp bridge failed to start", it)
-                    clientReady.completeExceptionally(it)
-                }
+        val listener = object : Listener {
+            override fun onEvent(kind: String, payload: String) = onBridgeEvent(kind, payload)
         }
+        start({
+            client = Wabridge.newClient(dataDir.absolutePath, deviceName, listener)
+            GoBridge(client)
+        }) { client.connect() }
     }
 
-    /** Bridge calls block on the network or disk, so they run on IO. */
-    private suspend fun <T> bridge(block: Client.() -> T): T {
-        val client = clientReady.await()
-        return withContext(Dispatchers.IO) {
-            try {
-                client.block()
-            } catch (error: Exception) {
-                throw WhatsAppException(error.message?.substringAfterLast("go: ")?.ifBlank { null } ?: "WhatsApp request failed")
-            }
-        }
+    override fun log(message: String) {
+        Log.w("WhatsApp", message)
     }
-
-    private fun handle(kind: String, payload: JSONObject) {
-        when (kind) {
-            "status" -> mutableEvents.tryEmit(ServiceEvent.StatusChanged(id))
-            "chats" -> mutableEvents.tryEmit(ServiceEvent.ConversationsChanged(id))
-            "messages" -> {
-                val chat = payload.optString("chat")
-                if (chat.isNotEmpty() && chat != "*") mutableEvents.tryEmit(ServiceEvent.MessagesChanged(id, json.conversationId(chat)))
-            }
-            "incoming" -> scope.launch { announceIncoming(payload.getString("chat"), payload.getString("id")) }
-            "typing" -> onTyping(payload)
-            "qr", "pair-code", "paired", "link-error" -> linkEvents.trySend(kind to payload)
-            "log" -> Log.w(TAG, payload.optString("message"))
-        }
-    }
-
-    private suspend fun announceIncoming(chat: String, messageId: String) {
-        val conversation = runCatching { json.conversation(bridge { chatJSON(chat) }) }.getOrNull() ?: return
-        val message = conversation.lastMessage?.takeIf { it.id == messageId } ?: return
-        mutableEvents.emit(ServiceEvent.IncomingMessage(id, conversation, message))
-    }
-
-    private fun onTyping(payload: JSONObject) {
-        val chat = payload.getString("chat")
-        typing.update(chat, payload.optString("sender"), payload.optBoolean("active"))
-        mutableEvents.tryEmit(ServiceEvent.ConversationsChanged(id))
-        mutableEvents.tryEmit(ServiceEvent.MessagesChanged(id, json.conversationId(chat)))
-        scope.launch {
-            delay(typing.lapse + 100)
-            mutableEvents.emit(ServiceEvent.ConversationsChanged(id))
-        }
-    }
-
-    // region Status and setup
-
-    override suspend fun status(): ServiceStatus {
-        val client = runCatching { clientReady.await() }.getOrNull()
-            ?: return ServiceStatus(id, connected = false, ready = false)
-        // A linked account stays "connected" offline so its stored chats still show.
-        val linked = withContext(Dispatchers.IO) { client.isLinked }
-        val account = JSONObject(withContext(Dispatchers.IO) { client.accountJSON() })
-        return ServiceStatus(
-            id,
-            connected = linked,
-            ready = withContext(Dispatchers.IO) { client.isConnected },
-            accountLabel = account.optString("phone").takeIf { it.isNotEmpty() }?.let { "+$it" },
-        )
-    }
-
-    override suspend fun capabilities() = Capabilities(
-        reactions = true,
-        edits = true,
-        deletes = true,
-        search = true,
-        compose = true,
-        muting = true,
-    )
 
     override suspend fun beginSetup(): SetupStep {
-        if (bridge { isLinked }) return complete()
+        if (bridge { isLinked() }) return complete()
         return SetupStep.Choice(
             "method", "Link WhatsApp", "Choose how to link this phone.",
             listOf(
@@ -159,28 +56,26 @@ class WhatsAppService(
             )
         } else {
             startLink("")
-            nextLinkStep(phone = "")
         }
         is SetupStep.Input -> {
             val phone = value.orEmpty().filter { it.isDigit() }
-            if (phone.length < 7) throw WhatsAppException("Enter the full number with its country code")
+            if (phone.length < 7) throw BridgeException("Enter the full number with its country code")
             startLink(phone)
-            nextLinkStep(phone)
         }
-        is SetupStep.Qr -> nextLinkStep(phone = "")
+        is SetupStep.Qr -> nextLinkStep("")
         is SetupStep.PairCode -> nextLinkStep(step.phone)
         is SetupStep.Complete -> step
     }
 
-    private suspend fun startLink(phone: String) {
-        linkEvents.close()
-        linkEvents = Channel(Channel.UNLIMITED)
-        bridge { startLink(phone) }
+    private suspend fun startLink(phone: String): SetupStep {
+        resetLinkEvents()
+        bridge { client.startLink(phone) }
+        return nextLinkStep(phone)
     }
 
-    /** Waits for the next linking event; QR codes refresh roughly every 20 seconds. */
+    /** QR codes refresh roughly every 20 seconds; each refresh is a new step. */
     private suspend fun nextLinkStep(phone: String): SetupStep {
-        val (kind, payload) = withTimeout(LINK_TIMEOUT_MILLIS) { linkEvents.receive() }
+        val (kind, payload) = nextLinkEvent()
         return when (kind) {
             "qr" -> SetupStep.Qr(
                 "qr", "Scan QR code",
@@ -194,7 +89,7 @@ class WhatsAppService(
                 phone,
             )
             "paired" -> complete()
-            else -> throw WhatsAppException(payload.optString("error", "Linking failed"))
+            else -> throw BridgeException(payload.optString("error", "Linking failed"))
         }
     }
 
@@ -202,84 +97,29 @@ class WhatsAppService(
         "WhatsApp connected",
         "Recent chats arrive from your main phone over the next few minutes.",
     )
+}
 
-    override suspend fun disconnect() {
-        bridge { logout() }
-    }
-
-    // endregion
-
-    // region Conversations and messages
-
-    override suspend fun listConversations(archived: Boolean): ConversationPage {
-        if (!bridge { isLinked }) return ConversationPage(emptyList(), 0)
-        return json.page(bridge { chatsJSON(archived) })
-    }
-
-    override suspend fun listMessages(conversation: Conversation, before: Message?): MessagePage {
-        val messages = json.messages(bridge { messagesJSON(conversation.remoteId, before?.sentAt ?: 0L, before?.id.orEmpty(), PAGE.toLong()) })
-        return MessagePage(messages, hasMore = messages.size >= PAGE, typingNames = typing.names(conversation.remoteId))
-    }
-
-    override suspend fun markRead(conversation: Conversation) {
-        if (conversation.unreadCount == 0 && conversation.lastMessage?.direction != Direction.INCOMING) return
-        bridge { markRead(conversation.remoteId) }
-        mutableEvents.emit(ServiceEvent.ConversationsChanged(id))
-    }
-
-    override suspend fun openConversation(conversation: Conversation) {
-        bridge { openChat(conversation.remoteId) }
-    }
-
-    override suspend fun closeConversation(conversation: Conversation) {
-        bridge { closeChat() }
-    }
-
-    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message {
-        val sent = json.message(bridge { sendText(conversation.remoteId, text, replyTo?.id.orEmpty()) })
-        mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversation.id))
-        return sent
-    }
-
-    override suspend fun setTyping(conversation: Conversation, active: Boolean) {
-        bridge { setTyping(conversation.remoteId, active) }
-    }
-
-    override suspend fun react(conversation: Conversation, message: Message, emoji: String, remove: Boolean) {
-        bridge { react(conversation.remoteId, message.id, if (remove) "" else emoji) }
-        mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
-
-    override suspend fun editMessage(conversation: Conversation, message: Message, text: String) {
-        bridge { edit(conversation.remoteId, message.id, text) }
-        mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
-
-    override suspend fun deleteMessage(conversation: Conversation, message: Message) {
-        bridge { revoke(conversation.remoteId, message.id) }
-        mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
-
-    override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) {
-        update.archived?.let { archived -> bridge { setArchived(conversation.remoteId, archived) } }
-        update.favourite?.let { pinned -> bridge { setPinned(conversation.remoteId, pinned) } }
-        update.muted?.let { muted -> bridge { setMuted(conversation.remoteId, muted) } }
-        mutableEvents.emit(ServiceEvent.ConversationsChanged(id))
-    }
-
-    override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> =
-        json.searchResults(bridge { searchJSON(query) }, conversation)
-
-    override suspend fun createDirect(address: String, title: String?): Conversation {
-        val jid = bridge { resolvePhone(address) }
-        return json.conversation(bridge { chatJSON(jid) })
-    }
-
-    // endregion
-
-    private companion object {
-        const val TAG = "WhatsApp"
-        const val PAGE = 50
-        const val LINK_TIMEOUT_MILLIS = 5 * 60_000L
-    }
+/** Adapts the gomobile-generated client to [NativeBridge]. */
+private class GoBridge(private val client: Client) : NativeBridge {
+    override fun isLinked() = client.isLinked
+    override fun isOnline() = client.isConnected
+    override fun accountJson(): String = client.accountJSON()
+    override fun logout() = client.logout()
+    override fun chatsJson(archived: Boolean): String = client.chatsJSON(archived)
+    override fun chatJson(chat: String): String = client.chatJSON(chat)
+    override fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String =
+        client.messagesJSON(chat, beforeTs, beforeId, limit)
+    override fun searchJson(query: String): String = client.searchJSON(query)
+    override fun sendText(chat: String, text: String, quoteId: String): String = client.sendText(chat, text, quoteId)
+    override fun react(chat: String, id: String, emoji: String, remove: Boolean) = client.react(chat, id, if (remove) "" else emoji)
+    override fun edit(chat: String, id: String, text: String) = client.edit(chat, id, text)
+    override fun delete(chat: String, id: String) = client.revoke(chat, id)
+    override fun markRead(chat: String) = client.markRead(chat)
+    override fun setTyping(chat: String, active: Boolean) = client.setTyping(chat, active)
+    override fun openChat(chat: String) = client.openChat(chat)
+    override fun closeChat() = client.closeChat()
+    override fun setArchived(chat: String, value: Boolean) = client.setArchived(chat, value)
+    override fun setPinned(chat: String, value: Boolean) = client.setPinned(chat, value)
+    override fun setMuted(chat: String, value: Boolean) = client.setMuted(chat, value)
+    override fun resolvePhone(phone: String): String = client.resolvePhone(phone)
 }

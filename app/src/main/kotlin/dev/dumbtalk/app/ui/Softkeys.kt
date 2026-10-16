@@ -50,6 +50,13 @@ class SoftkeyController {
     /** True while a text field has focus, so number keys type instead. */
     var typing by mutableStateOf(false)
 
+    /** The focused control, if it wants the centre key itself (e.g. Send). */
+    private var centerClaim: Any? = null
+
+    fun claimCenter(owner: Any, claim: Boolean) {
+        if (claim) centerClaim = owner else if (centerClaim === owner) centerClaim = null
+    }
+
     val current: SoftkeyConfig get() = stack.lastOrNull()?.config ?: SoftkeyConfig()
 
     @Composable
@@ -66,29 +73,31 @@ class SoftkeyController {
 
     /**
      * Maps hardware keys to softkeys: left softkey, Menu, or 1 when not
-     * typing → left; right softkey or Back → right; centre only when the
-     * screen gives it an action. Down and up are both consumed for keys we
-     * act on so the system never sees half a press.
+     * typing → left; right softkey or Back → right; centre when the screen
+     * gives it an action, unless the focused control claims it.
+     *
+     * Everything acts on key-down and both halves of the press are consumed.
+     * Acting on key-up would let one press do two things: Back closes a chat
+     * on down, and the inbox's Exit would then fire on the same press's up.
      */
     fun onKey(event: KeyEvent): Result {
         val code = event.keyCode
+        val center = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER
+        if (center && centerClaim != null) return Result.IGNORED
         val config = current
+        val back = code == KeyEvent.KEYCODE_SOFT_RIGHT || code == KeyEvent.KEYCODE_BACK
         val action = when {
             code == KeyEvent.KEYCODE_SOFT_LEFT || code == KeyEvent.KEYCODE_MENU -> config.left
             code == KeyEvent.KEYCODE_1 && !typing -> config.left
-            code == KeyEvent.KEYCODE_SOFT_RIGHT || code == KeyEvent.KEYCODE_BACK -> config.right ?: return backWithoutAction(event)
-            (code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER) && config.center?.onPress != null -> config.center
+            back -> config.right ?: if (code == KeyEvent.KEYCODE_BACK) SoftkeyAction(EXIT) else null
+            center && config.center?.onPress != null -> config.center
             else -> return Result.IGNORED
         } ?: return if (code == KeyEvent.KEYCODE_1) Result.IGNORED else Result.HANDLED
-        // Exit on release so the key-up never reaches whatever is behind us.
-        if (action.label == EXIT) return if (event.action == KeyEvent.ACTION_UP) Result.EXIT else Result.HANDLED
         if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return Result.HANDLED
+        if (action.label == EXIT) return Result.EXIT
         action.onPress?.invoke()
         return Result.HANDLED
     }
-
-    private fun backWithoutAction(event: KeyEvent): Result =
-        if (event.keyCode == KeyEvent.KEYCODE_BACK && event.action == KeyEvent.ACTION_UP) Result.EXIT else Result.HANDLED
 
     companion object {
         const val EXIT = "Exit"

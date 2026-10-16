@@ -54,11 +54,10 @@ import dev.dumbtalk.app.ui.SoftkeyController
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
-import dev.dumbtalk.core.AttachmentKind
+import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Direction
-import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.Receipt
 
 @Composable
@@ -167,21 +166,6 @@ fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () 
 }
 
 private fun firstName(name: String?) = name?.trim()?.split(Regex("\\s+"))?.firstOrNull()
-
-fun messageSummary(message: Message?): String {
-    if (message == null) return "No messages yet"
-    if (message.deleted) return "Message deleted"
-    message.text?.let { return it }
-    if (message.poll != null) return "Poll: ${message.poll!!.question}"
-    if (message.stickerPath != null) return "Sticker"
-    return when (message.attachments.firstOrNull()?.kind) {
-        AttachmentKind.IMAGE -> "Photo"
-        AttachmentKind.VIDEO -> "Video"
-        AttachmentKind.AUDIO -> "Voice note"
-        AttachmentKind.FILE -> "Attachment"
-        null -> "Message"
-    }
-}
 
 private fun previewText(conversation: Conversation) = buildAnnotatedString {
     if (conversation.typingNames.isNotEmpty()) {

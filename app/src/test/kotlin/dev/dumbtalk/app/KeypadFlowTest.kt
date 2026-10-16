@@ -5,9 +5,11 @@ import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
-import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performTextInput
+import androidx.compose.ui.test.requestFocus
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Before
 import org.junit.Rule
@@ -91,10 +93,8 @@ class KeypadFlowTest {
         waitFor("👍")
         waitFor("Count me in!")
 
-        // Centre (Type) focuses the composer; centre (Send) sends. Afterwards
-        // the softkeys must come back: this got stuck on-device once.
-        // Centre (Type) focuses the composer; centre (Send) sends; Back
-        // leaves the composer and the softkeys come back.
+        // Centre (Type) focuses the composer and centre (Send) sends. Back
+        // leaves the composer and the softkeys come back (they once stuck).
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         compose.onNode(hasSetTextAction()).performTextInput("Leaving now")
         waitFor("SEND")
@@ -104,8 +104,25 @@ class KeypadFlowTest {
         waitFor("Leaving now")
         waitFor("1=MESSAGE")
 
-        // Back to the inbox, open the menu, move to Services.
-        press(KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_1)
+        // Centre on the focused Send button sends (the Type softkey once took
+        // the key). Robolectric's text field keeps D-pad right for its
+        // cursor, so focus the button directly, as right does on a phone.
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.onNode(hasSetTextAction()).performTextInput("Via the button")
+        compose.onNodeWithContentDescription("Send").requestFocus()
+        step()
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        while (exists(hasSetTextAction() and hasText("Via the button"))) step()
+        waitFor("Via the button")
+
+        // Back to the inbox. The same press must not also trigger the
+        // inbox's Exit (it once closed the app on key-up).
+        press(KeyEvent.KEYCODE_BACK)
+        waitFor("Maya Chen")
+        check(!compose.activity.isFinishing) { "Back from a chat closed the app" }
+
+        // Open the menu and move to Services.
+        press(KeyEvent.KEYCODE_1)
         waitFor("Services")
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("+15550100999")

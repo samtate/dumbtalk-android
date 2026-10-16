@@ -41,7 +41,7 @@ jobs:
 
       - name: Install Signal bridge tools
         run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler ninja-build clang libclang-dev
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler clang libclang-dev
           cargo install --locked cargo-ndk
 
       - uses: Swatinem/rust-cache@v2
@@ -49,6 +49,9 @@ jobs:
           workspaces: bridge/signal
 
       - name: Build Signal bridge
+        env:
+          # The runner's CMake can't use Ninja for BoringSSL; make is available.
+          CMAKE_GENERATOR: Unix Makefiles
         run: |
           (cd bridge/signal && cargo test --lib)
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-sigbridge.sh
@@ -108,7 +111,7 @@ jobs:
 
       - name: Install Signal bridge tools
         run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler ninja-build clang libclang-dev
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler clang libclang-dev
           cargo install --locked cargo-ndk
 
       - uses: Swatinem/rust-cache@v2
@@ -116,6 +119,9 @@ jobs:
           workspaces: bridge/signal
 
       - name: Build Signal bridge
+        env:
+          # The runner's CMake can't use Ninja for BoringSSL; make is available.
+          CMAKE_GENERATOR: Unix Makefiles
         run: |
           (cd bridge/signal && cargo test --lib)
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-sigbridge.sh
