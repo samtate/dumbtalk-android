@@ -71,6 +71,7 @@ import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.ServiceEvent
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 import java.time.Instant
@@ -96,6 +97,8 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     var messages by remember { mutableStateOf<List<Message>?>(null) }
     var hasMore by remember { mutableStateOf(false) }
     var error by remember { mutableStateOf<String?>(null) }
+    /** Separate from load errors, which a reload clears. */
+    var sendError by remember { mutableStateOf<String?>(null) }
 
     var draft by remember { mutableStateOf("") }
     var replyTo by remember { mutableStateOf<Message?>(null) }
@@ -145,6 +148,8 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         refocus++
         service.events
             .filter { it is ServiceEvent.MessagesChanged && it.conversationId == screen.conversationId }
+            // Keep up with busy services (TDLib is chatty) and merge bursts into one reload.
+            .conflate()
             .collect {
                 val atBottom = !listState.canScrollForward
                 load()
@@ -172,8 +177,17 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             runCatching {
                 if (target != null) service.editMessage(conversation, target, text)
                 else service.sendText(conversation, text, quoted)
-                service.setTyping(conversation, false)
-            }.onFailure { error = it.message }
+            }.onSuccess {
+                sendError = null
+            }.onFailure { failure ->
+                android.util.Log.w("Chat", "send failed", failure)
+                sendError = "Not sent: ${failure.message ?: "unknown error"}"
+                // Put it back so nothing typed is lost.
+                if (draft.isEmpty()) draft = text
+                replyTo = quoted
+                editing = target
+            }
+            runCatching { service.setTyping(conversation, false) }
             load()
             listState.animateScrollToItem(lastIndex())
         }
@@ -262,6 +276,15 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         conversation.typingNames.joinToString() + " typing…",
                         style = Type.small.copy(color = Palette.sender),
                         modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp),
+                    )
+                }
+                sendError?.let {
+                    BasicText(
+                        it,
+                        style = Type.small.copy(color = Palette.error),
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 2.dp),
                     )
                 }
                 val banner = editing?.let { "Editing message" } ?: replyTo?.let { "Replying to ${it.sender ?: conversation.title}: ${messageSummary(it)}" }

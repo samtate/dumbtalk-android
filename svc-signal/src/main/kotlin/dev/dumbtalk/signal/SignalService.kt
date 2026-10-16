@@ -47,7 +47,7 @@ class SignalService(
 ) : MessagingService {
     override val id = ServiceId.SIGNAL
 
-    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 256)
+    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
     override val events: SharedFlow<ServiceEvent> = mutableEvents
 
     private val clientReady = CompletableDeferred<SignalClient>()

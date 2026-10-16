@@ -25,4 +25,6 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":core"))
+    // TDLib's generated TdApi.java uses @IntDef.
+    implementation(libs.androidx.annotation)
 }

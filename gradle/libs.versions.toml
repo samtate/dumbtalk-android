@@ -10,6 +10,7 @@ junit = "4.13.2"
 zxing = "3.5.3"
 robolectric = "4.14.1"
 jna = "5.14.0"
+annotation = "1.9.1"
 roborazzi = "1.43.0"
 
 [libraries]
@@ -30,6 +31,7 @@ roborazzi = { module = "io.github.takahirom.roborazzi:roborazzi", version.ref = 
 roborazzi-compose = { module = "io.github.takahirom.roborazzi:roborazzi-compose", version.ref = "roborazzi" }
 compose-ui-test-junit4 = { module = "androidx.compose.ui:ui-test-junit4" }
 compose-ui-test-manifest = { module = "androidx.compose.ui:ui-test-manifest" }
+androidx-annotation = { module = "androidx.annotation:annotation", version.ref = "annotation" }
 jna = { module = "net.java.dev.jna:jna", version.ref = "jna" }
 zxing-core = { module = "com.google.zxing:core", version.ref = "zxing" }
 

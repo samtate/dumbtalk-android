@@ -39,6 +39,20 @@ jobs:
           (cd bridge/whatsapp && go test ./...)
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-wabridge.sh
 
+      - name: Install Signal bridge tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler ninja-build clang libclang-dev
+          cargo install --locked cargo-ndk
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bridge/signal
+
+      - name: Build Signal bridge
+        run: |
+          (cd bridge/signal && cargo test --lib)
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-sigbridge.sh
+
       - name: Test
         run: ./gradlew :core:testDebugUnitTest :app:testDebugUnitTest
 
@@ -91,6 +105,20 @@ jobs:
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" >/dev/null
           (cd bridge/whatsapp && go test ./...)
           ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-wabridge.sh
+
+      - name: Install Signal bridge tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y protobuf-compiler ninja-build clang libclang-dev
+          cargo install --locked cargo-ndk
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: bridge/signal
+
+      - name: Build Signal bridge
+        run: |
+          (cd bridge/signal && cargo test --lib)
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-sigbridge.sh
 
       - name: Build signed release APK
         env:

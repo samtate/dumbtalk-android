@@ -36,7 +36,7 @@ class DemoService(
     private val replyDelayMillis: Long = 2_500,
 ) : MessagingService {
     private val lock = Mutex()
-    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 64)
+    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
     override val events: SharedFlow<ServiceEvent> = mutableEvents
 
     private var connected = true

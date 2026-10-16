@@ -56,6 +56,7 @@ import dev.dumbtalk.core.SetupStep
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
 
@@ -78,7 +79,7 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
 
     LaunchedEffect(Unit) {
         refresh()
-        app.registry.events.filter { it is ServiceEvent.StatusChanged }.collect { refresh() }
+        app.registry.events.filter { it is ServiceEvent.StatusChanged }.conflate().collect { refresh() }
     }
 
     LaunchedEffect(statuses != null, confirmDisconnect) {

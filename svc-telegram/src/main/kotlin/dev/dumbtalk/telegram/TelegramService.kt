@@ -46,7 +46,7 @@ class TelegramConfig(
 class TelegramService(private val config: TelegramConfig, private val scope: CoroutineScope) : MessagingService {
     override val id = ServiceId.TELEGRAM
 
-    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 256)
+    private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
     override val events: SharedFlow<ServiceEvent> = mutableEvents
 
     @Volatile private var client: TdClient? = null
@@ -137,7 +137,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             is TdApi.UpdateChatTitle -> chat(update.chatId) { title = update.title }
             is TdApi.UpdateChatLastMessage -> chat(update.chatId) {
                 lastMessage = update.lastMessage
-                update.positions.forEach(::setPosition)
+                update.positions.forEach { setPosition(it) }
             }
             is TdApi.UpdateChatPosition -> chat(update.chatId) { setPosition(update.position) }
             is TdApi.UpdateChatReadInbox -> chat(update.chatId) {

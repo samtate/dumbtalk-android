@@ -165,7 +165,10 @@ internal class TelegramMapper(private val service: TelegramService) {
         is TdApi.MessageVenue -> Described("📍 ${content.venue.title}")
         is TdApi.MessageCall -> Described(if (content.isVideo) "📹 Video call" else "📞 Call")
         is TdApi.MessageDice -> Described(content.emoji)
-        is TdApi.MessageChatAddMembers -> Described(content.memberUserIds.mapNotNull { service.users[it]?.let(::userName) }.joinToString().ifEmpty { "Someone" } + " joined", system = true)
+        is TdApi.MessageChatAddMembers -> {
+            val names = content.memberUserIds.toList().mapNotNull { id -> service.users[id]?.let { user -> userName(user) } }
+            Described(names.joinToString().ifEmpty { "Someone" } + " joined", system = true)
+        }
         is TdApi.MessageChatJoinByLink -> Described("Joined by invite link", system = true)
         is TdApi.MessageChatJoinByRequest -> Described("Joined the group", system = true)
         is TdApi.MessageChatDeleteMember -> Described((service.users[content.userId]?.let(::userName) ?: "Someone") + " left", system = true)

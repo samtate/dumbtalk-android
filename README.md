@@ -5,9 +5,9 @@ Qin F22 Pro. It is the successor to the self-hosted [dumbtalk](https://github.co
 server: the same keypad interface, but every messaging service runs on the phone itself. No server is
 needed.
 
-> **Status: early development.** The keypad UI shell runs against built-in demo services. The real
-> network services are coming one at a time: Telegram first, then WhatsApp, then Signal. See
-> [docs/plan.md](docs/plan.md).
+> **Status: early development.** Signal (presage), Telegram (TDLib) and WhatsApp (whatsmeow) run
+> natively on the phone; a foreground service keeps them connected and posts per-chat
+> notifications. See [docs/plan.md](docs/plan.md) for what's next.
 
 DumbTalk is unofficial and is not affiliated with Signal, Telegram or WhatsApp.
 
@@ -61,13 +61,28 @@ Release signing requires these repository secrets: `DUMBTALK_KEYSTORE_BASE64`,
 
 ## Build
 
-You need JDK 17 and the Android SDK (platform 35).
+You need JDK 17 and the Android SDK (platform 35) plus NDK 27.2. Then build the three native
+pieces once (CI does the same):
 
 ```sh
+scripts/fetch-tdlib.sh       # Telegram: TDLib from the TDLib workflow's release (needs gh)
+scripts/build-wabridge.sh    # WhatsApp: Go bridge via gomobile (needs Go 1.26+)
+scripts/build-sigbridge.sh   # Signal: Rust bridge via cargo-ndk + UniFFI (needs rustup,
+                             #   cargo-ndk, cmake, ninja, clang/libclang, protoc)
 ./gradlew :core:testDebugUnitTest :app:testDebugUnitTest   # unit and keypad tests
 ./gradlew :app:assembleDebug                               # app/build/outputs/apk/debug/
-./gradlew :app:testDebugUnitTest -Proborazzi.test.record=true  # refresh docs/screenshots
 ```
+
+Telegram app credentials come from `TELEGRAM_API_ID`/`TELEGRAM_API_HASH` (environment or CI
+secrets) or `telegram.api_id`/`telegram.api_hash` in `local.properties`.
+
+## Linking accounts
+
+- **Signal** links only by scanning a QR code, by design. If Signal (or Molly) is on the same
+  phone, show the code on another screen and scan it from there.
+- **Telegram** links by QR, or by phone number with a code sent to your other Telegram devices.
+- **WhatsApp** links by QR, or by phone number with a pairing code. The pairing code works with
+  WhatsApp on the same phone.
 
 ## Layout
 
@@ -75,7 +90,10 @@ You need JDK 17 and the Android SDK (platform 35).
   (`Inbox.kt`) and the demo service. It is ported from the web client's `contracts.ts`.
 - `app/`: the Compose keypad UI. `ui/Softkeys.kt` ports the softkey stack, and `ui/Components.kt`
   holds the focus treatment.
-- Services will live in their own modules (`svc-telegram`, `svc-whatsapp`, `svc-signal`).
+- `svc-telegram/`: TDLib. `svc-whatsapp/` + `bridge/whatsapp/`: Go bridge on whatsmeow.
+  `svc-signal/` + `bridge/signal/`: Rust bridge on presage. Both bridges keep their own SQLite
+  store of chats and messages and return JSON (`core/.../bridge/BridgeJson.kt`).
+- `app/.../background/`: the connection service and notifications.
 
 ## Licence
 

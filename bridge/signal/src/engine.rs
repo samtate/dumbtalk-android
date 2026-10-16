@@ -831,8 +831,13 @@ impl Engine {
         if digits.len() < 7 {
             return Err(fail("Enter a full phone number with its country code"));
         }
-        let number = presage::libsignal_service::prelude::phonenumber::parse(None, format!("+{digits}")).map_err(fail)?;
         let mut manager = self.manager()?;
+        // Your own number is Note to Self (lookup would return the PNI).
+        let own: String = manager.registration_data().phone_number.to_string().chars().filter(|c| c.is_ascii_digit()).collect();
+        if own == digits {
+            return Ok(format!("c:{}", manager.registration_data().service_ids.aci));
+        }
+        let number = presage::libsignal_service::prelude::phonenumber::parse(None, format!("+{digits}")).map_err(fail)?;
         let found = manager.discover_contacts_by_phone_number([number]).await.map_err(fail)?;
         found
             .into_iter()

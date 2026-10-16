@@ -19,6 +19,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.filterIsInstance
@@ -63,7 +65,8 @@ open class DumbTalkApp : Application() {
 
         notifier = MessageNotifier(this)
         scope.launch {
-            registry.events.filterIsInstance<ServiceEvent.IncomingMessage>().collect { event ->
+            // Unbounded so no notification is lost while one is being posted.
+            registry.events.filterIsInstance<ServiceEvent.IncomingMessage>().buffer(Channel.UNLIMITED).collect { event ->
                 runCatching { notifier.show(event.conversation, event.message) }
             }
         }
