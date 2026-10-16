@@ -109,11 +109,16 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
                 leading = { ServiceIcon(status.id, size = 28.dp) },
                 trailing = {
                     BasicText(
-                        if (status.connected) "On" else "Off",
-                        style = Type.bold(Type.small.copy(color = if (status.connected) Palette.background else Palette.muted)),
+                        // Linked but not connected right now reads as Offline.
+                        when {
+                            status.connected && status.ready -> "On"
+                            status.connected -> "Offline"
+                            else -> "Off"
+                        },
+                        style = Type.bold(Type.small.copy(color = if (status.connected && status.ready) Palette.background else Palette.muted)),
                         modifier = Modifier
-                            .background(if (status.connected) Palette.text else Palette.background, Square)
-                            .border(1.dp, if (status.connected) Palette.text else Palette.line, Square)
+                            .background(if (status.connected && status.ready) Palette.text else Palette.background, Square)
+                            .border(1.dp, if (status.connected && status.ready) Palette.text else Palette.line, Square)
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     )
                 },

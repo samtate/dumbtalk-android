@@ -199,6 +199,15 @@ private fun Bubble(
                     ),
                 )
             }
+            message.poll?.takeIf { !message.deleted }?.let { poll ->
+                Column(Modifier.padding(top = 2.dp)) {
+                    poll.options.forEach { option ->
+                        val votes = option.votes.size.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
+                        BasicText("${if (poll.multiple) "□" else "○"} ${option.text}$votes".forDisplay(), style = Type.body)
+                    }
+                    if (poll.closed) BasicText("Poll closed", style = Type.small)
+                }
+            }
             if (message.reactions.isNotEmpty()) {
                 BasicText(
                     message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji }.forDisplay(),

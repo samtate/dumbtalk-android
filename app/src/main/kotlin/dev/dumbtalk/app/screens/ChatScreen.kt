@@ -99,6 +99,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var showOptions by remember { mutableStateOf(false) }
     var emojiFor by remember { mutableStateOf<EmojiUse?>(null) }
+    var forwarding by remember { mutableStateOf<Message?>(null) }
     val listState = rememberLazyListState()
     val messageFocus = remember { FocusRequester() }
     val inputFocus = remember { FocusRequester() }
@@ -179,6 +180,19 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     val actionMessage = model.messages?.firstOrNull { it.id == actionMessageId }
     val activeRecorder = recorder
     when {
+        forwarding != null -> ForwardPanel(
+            app, conversation,
+            onPick = { target ->
+                val message = forwarding!!
+                forwarding = null
+                actionMessageId = null
+                model.forward(message, target, app.registry.forConversation(target)) { problem ->
+                    Toast.makeText(context, problem?.let { "Not forwarded: $it" } ?: "Forwarded to ${target.title}", Toast.LENGTH_SHORT).show()
+                }
+            },
+            onClose = { forwarding = null },
+        )
+
         emojiFor != null -> EmojiPanel(
             title = if (emojiFor is EmojiUse.React) "React" else "Emoji",
             onPick = { emoji ->
@@ -214,6 +228,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             onDelete = { model.delete(actionMessage); actionMessageId = null },
             onPin = { model.togglePin(actionMessage); actionMessageId = null },
             onMoreReactions = { emojiFor = EmojiUse.React(actionMessage) },
+            onForward = { forwarding = actionMessage },
             media = mediaAction(actionMessage)?.let { item -> MenuItem(item.label, item.icon) { actionMessageId = null; item.onClick() } },
         )
 

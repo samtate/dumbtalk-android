@@ -148,6 +148,27 @@ class ChatModel(
         }
     }
 
+    /**
+     * Sends [message] to [target] on any service: attachments are downloaded
+     * and re-sent with their caption, text goes with an attribution line.
+     * [done] gets null on success or a reason.
+     */
+    fun forward(message: Message, target: Conversation, targetService: MessagingService, done: (String?) -> Unit) {
+        scope.launch {
+            val result = runCatching {
+                val attachment = message.attachments.firstOrNull()
+                if (attachment != null) {
+                    val path = attachmentPath(message)
+                    targetService.sendAttachment(target, path, attachment.contentType ?: "application/octet-stream", message.text)
+                } else {
+                    val text = forwardedText(conversation(), message) ?: error("Nothing to forward")
+                    targetService.sendText(target, text)
+                }
+            }
+            done(result.exceptionOrNull()?.let { it.message ?: "failed" })
+        }
+    }
+
     fun toggleReaction(message: Message, emoji: String) {
         val own = message.reactions.any { it.isOwn && it.emoji == emoji }
         launch { service.react(conversation(), message, emoji, remove = own) }

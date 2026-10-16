@@ -61,6 +61,7 @@ internal fun MessageActions(
     /** View, Play/Stop or Open, for messages with an attachment. */
     media: MenuItem? = null,
     onMoreReactions: () -> Unit = {},
+    onForward: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val requester = remember { FocusRequester() }
@@ -99,6 +100,7 @@ internal fun MessageActions(
             val actions = buildList {
                 if (media != null && !message.deleted) add(media)
                 if (!message.deleted) add(MenuItem("Reply", AppIcon.REPLY, onReply))
+                if (!message.deleted && (message.text != null || message.attachments.isNotEmpty())) add(MenuItem("Forward", AppIcon.FORWARD, onForward))
                 if (outgoing && capabilities.edits && !message.deleted && message.text != null) add(MenuItem("Edit", AppIcon.EDIT, onEdit))
                 if (capabilities.pins && !message.deleted) add(MenuItem(if (message.pinned) "Unpin" else "Pin", AppIcon.PIN, onPin))
                 if (message.text != null) add(MenuItem("Copy", AppIcon.COMPOSE) {
