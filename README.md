@@ -25,7 +25,11 @@ DumbTalk is unofficial and is not affiliated with Signal, Telegram or WhatsApp.
 </table>
 
 The screenshots come from the Robolectric keypad test (`KeypadFlowTest`), which drives the app with
-hardware key events at the Qin F22 Pro's screen size.
+hardware key events at the test phone's screen size (640×960, 240 dpi).
+
+Text input relies on the phone's keypad IME, such as TT9. While a text field has focus the IME sees
+keys first, so DumbTalk gives **1** back to typing and only takes the centre key (Send) when there is
+text to send. Back leaves the text field.
 
 ## Keys
 

@@ -28,6 +28,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -232,10 +234,10 @@ fun TextInput(
     val softkeys = LocalSoftkeys.current
     val interaction = remember { MutableInteractionSource() }
     val focused by interaction.collectIsFocusedAsState()
-    DisposableEffect(focused) {
-        if (focused) softkeys.typing = true
-        onDispose { if (focused) softkeys.typing = false }
-    }
+    // The typing flag follows the focus system directly. A plain holder, not
+    // state: it only remembers whether this field set the flag.
+    val ownsTyping = remember { BooleanArray(1) }
+    DisposableEffect(Unit) { onDispose { if (ownsTyping[0]) softkeys.typing = false } }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -249,6 +251,12 @@ fun TextInput(
         keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }, onSend = { onDone?.invoke() }),
         modifier = modifier
             .then(if (focusRequester != null) Modifier.focusRequester(focusRequester) else Modifier)
+            .onFocusChanged {
+                if (it.isFocused != ownsTyping[0]) {
+                    ownsTyping[0] = it.isFocused
+                    softkeys.typing = it.isFocused
+                }
+            }
             .clip(RoundedCornerShape(5.dp))
             .background(Color(0xFF0F1E19))
             .border(1.dp, if (focused) Palette.focus else Palette.line, RoundedCornerShape(5.dp))

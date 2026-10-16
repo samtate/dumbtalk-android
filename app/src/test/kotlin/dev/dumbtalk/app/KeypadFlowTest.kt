@@ -2,10 +2,14 @@ package dev.dumbtalk.app
 
 import android.view.KeyEvent
 import androidx.compose.ui.test.ExperimentalTestApi
+import androidx.compose.ui.test.SemanticsMatcher
+import androidx.compose.ui.test.hasSetTextAction
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.performTextInput
 import androidx.compose.ui.test.junit4.createAndroidComposeRule
 import androidx.compose.ui.test.onRoot
 import com.github.takahirom.roborazzi.captureRoboImage
+import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -16,15 +20,27 @@ import org.robolectric.annotation.GraphicsMode
 /**
  * Drives the demo build with hardware key events through MainActivity, the
  * same path a keypad phone uses, and records screenshots of each screen.
- * The screen size approximates the Qin F22 Pro (480×640).
+ * The screen matches the test phone: 640×960 at 240 dpi (427×640 dp).
  */
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w320dp-h427dp-hdpi")
+@Config(sdk = [34], qualifiers = "w427dp-h640dp-hdpi")
 class KeypadFlowTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()
+
+    @Before
+    fun manualClock() {
+        // Text fields animate their cursor forever, so Compose never reports
+        // idle under Robolectric. Step the clock by hand instead of waiting.
+        compose.mainClock.autoAdvance = false
+    }
+
+    private fun step(millis: Long = 50) {
+        compose.mainClock.advanceTimeBy(millis)
+        Thread.sleep(10) // let demo work on Dispatchers.Default run
+    }
 
     private fun press(vararg codes: Int) {
         for (code in codes) {
@@ -32,13 +48,23 @@ class KeypadFlowTest {
                 compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code))
                 compose.activity.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code))
             }
-            compose.waitForIdle()
+            step(100)
         }
     }
 
-    private fun waitFor(text: String) = compose.waitUntilAtLeastOneExists(hasText(text, substring = true), 10_000)
+    private fun exists(matcher: SemanticsMatcher) =
+        compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
-    private fun shoot(name: String) = compose.onRoot().captureRoboImage("../docs/screenshots/$name.png")
+    private fun waitFor(text: String, timeoutMillis: Long = 15_000) {
+        val matcher = hasText(text, substring = true)
+        val deadline = System.currentTimeMillis() + timeoutMillis
+        while (!exists(matcher)) {
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for \"$text\"" }
+            step()
+        }
+    }
+
+    private fun shoot(name: String) = step(500).let { compose.onRoot().captureRoboImage("../docs/screenshots/$name.png") }
 
     @Test
     fun keypadWalkthrough() {
@@ -65,6 +91,19 @@ class KeypadFlowTest {
         waitFor("👍")
         waitFor("Count me in!")
 
+        // Centre (Type) focuses the composer; centre (Send) sends. Afterwards
+        // the softkeys must come back: this got stuck on-device once.
+        // Centre (Type) focuses the composer; centre (Send) sends; Back
+        // leaves the composer and the softkeys come back.
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        compose.onNode(hasSetTextAction()).performTextInput("Leaving now")
+        waitFor("SEND")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        while (exists(hasSetTextAction() and hasText("Leaving now"))) step()
+        press(KeyEvent.KEYCODE_BACK)
+        waitFor("Leaving now")
+        waitFor("1=MESSAGE")
+
         // Back to the inbox, open the menu, move to Services.
         press(KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_1)
         waitFor("Services")
@@ -82,7 +121,7 @@ class KeypadFlowTest {
         shoot("setup-qr")
 
         // The demo "scan" completes on its own after a few seconds.
-        waitFor("Signal connected")
+        waitFor("Signal connected", timeoutMillis = 30_000)
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Maya Chen")
     }
