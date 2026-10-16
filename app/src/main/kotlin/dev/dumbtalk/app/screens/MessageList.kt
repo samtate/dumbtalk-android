@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.attachmentLine
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.app.media.AudioPlayer
 import androidx.compose.ui.text.buildAnnotatedString
@@ -178,11 +179,15 @@ private fun Bubble(
             }
             if (!message.deleted) InlineImage(message, maxWidth - 14.dp, loadAttachment)
             val italic = message.deleted
+            val line = if (message.deleted) null else attachmentLine(message)
+            if (line != null) {
+                BasicText(if (AudioPlayer.playing == message.id) "■ Playing…" else line.forDisplay(), style = Type.label)
+            }
+            // The caption or text; a photo or file with none needs no extra line.
             val label = when {
                 message.deleted -> "This message was deleted"
-                AudioPlayer.playing == message.id -> "■ Playing…"
-                message.attachments.firstOrNull()?.kind == AttachmentKind.AUDIO && message.text == null -> "▶ ${messageSummary(message)}"
-                message.image() != null && message.text == null -> null // the photo speaks for itself
+                message.text != null -> messageSummary(message).forDisplay()
+                message.image() != null || line != null -> null
                 else -> messageSummary(message).forDisplay()
             }
             if (label != null) {

@@ -32,6 +32,9 @@ open class DumbTalkApp : Application() {
     lateinit var notifier: MessageNotifier
         private set
 
+    /** Unsent text per conversation id, kept while the app runs. */
+    val drafts = java.util.concurrent.ConcurrentHashMap<String, String>()
+
     /** Robolectric can't build custom font fallback chains. */
     protected open val usePixelFallbackFonts = true
 

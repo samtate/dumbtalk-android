@@ -60,6 +60,7 @@ internal fun MessageActions(
     onPin: () -> Unit,
     /** View, Play/Stop or Open, for messages with an attachment. */
     media: MenuItem? = null,
+    onMoreReactions: () -> Unit = {},
 ) {
     val context = LocalContext.current
     val requester = remember { FocusRequester() }
@@ -106,6 +107,8 @@ internal fun MessageActions(
                     onClose()
                 })
                 if (capabilities.deletes && outgoing && !message.deleted) add(MenuItem("Delete", AppIcon.DELETE, onDelete))
+                // A normal tile, not a full-width button: D-pad focus into a two-column grid is predictable.
+                if (canReact) add(MenuItem("More emoji", AppIcon.STICKER, onMoreReactions))
             }
             MenuGrid(actions, if (canReact) null else requester)
             val details = buildList {

@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.ui.focus.onFocusChanged
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.Dispatchers
 import dev.dumbtalk.core.AttachmentKind
@@ -78,14 +79,26 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     app.inbox.archived.collectAsStateWithLifecycle().value
     val conversation = app.inbox.find(screen.conversationId) ?: screen.initial
     val latest by rememberUpdatedState(conversation)
-    val model = remember(screen.conversationId) { ChatModel(service, { latest }, scope) }
+    val model = remember(screen.conversationId) {
+        ChatModel(service, { latest }, scope, initialDraft = app.drafts[screen.conversationId].orEmpty())
+    }
+    DisposableEffect(model) {
+        onDispose {
+            val text = model.draft
+            if (text.isBlank()) app.drafts.remove(screen.conversationId) else app.drafts[screen.conversationId] = text
+        }
+    }
     val capabilities by produceState(Capabilities(), service) {
         value = runCatching { service.capabilities() }.getOrDefault(Capabilities())
     }
 
+    /** The message under the cursor; null while focus is in the composer (so Options shows). */
     var selectedId by remember { mutableStateOf<String?>(null) }
+    /** The last message focused, where focus returns to when leaving the composer. */
+    var lastMessageId by remember { mutableStateOf<String?>(null) }
     var actionMessageId by remember { mutableStateOf<String?>(null) }
     var showOptions by remember { mutableStateOf(false) }
+    var emojiFor by remember { mutableStateOf<EmojiUse?>(null) }
     val listState = rememberLazyListState()
     val messageFocus = remember { FocusRequester() }
     val inputFocus = remember { FocusRequester() }
@@ -142,6 +155,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     LaunchedEffect(screen.conversationId) {
         model.load()
         selectedId = model.messages?.lastOrNull()?.id
+        lastMessageId = selectedId
         listState.scrollToItem(model.lastIndex)
         loaded = true
         service.events
@@ -165,6 +179,19 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     val actionMessage = model.messages?.firstOrNull { it.id == actionMessageId }
     val activeRecorder = recorder
     when {
+        emojiFor != null -> EmojiPanel(
+            title = if (emojiFor is EmojiUse.React) "React" else "Emoji",
+            onPick = { emoji ->
+                when (val use = emojiFor) {
+                    is EmojiUse.React -> { model.toggleReaction(use.message, emoji); actionMessageId = null }
+                    EmojiUse.Compose -> { model.append(emoji); focusInput() }
+                    null -> Unit
+                }
+                emojiFor = null
+            },
+            onClose = { emojiFor = null },
+        )
+
         viewerPath != null -> ImageViewer(viewerPath!!) { viewerPath = null }
 
         activeRecorder != null -> RecordingPanel(
@@ -186,6 +213,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             onEdit = { model.startEdit(actionMessage); actionMessageId = null; focusInput() },
             onDelete = { model.delete(actionMessage); actionMessageId = null },
             onPin = { model.togglePin(actionMessage); actionMessageId = null },
+            onMoreReactions = { emojiFor = EmojiUse.React(actionMessage) },
             media = mediaAction(actionMessage)?.let { item -> MenuItem(item.label, item.icon) { actionMessageId = null; item.onClick() } },
         )
 
@@ -198,6 +226,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                 if (update.archived == true) navigator.pop()
             },
             send = buildList {
+                add(MenuItem("Emoji", AppIcon.STICKER) { showOptions = false; emojiFor = EmojiUse.Compose })
                 if (capabilities.attachments) add(MenuItem("Send file", AppIcon.ATTACH) { showOptions = false; pickFile.launch("*/*") })
                 if (capabilities.voiceNotes) add(MenuItem("Voice note", AppIcon.MIC) {
                     showOptions = false
@@ -235,8 +264,8 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         messages == null -> CenteredMessage(model.loadError ?: "Loading…", color = if (model.loadError != null) Palette.error else Palette.muted)
                         messages.isEmpty() -> CenteredMessage("No messages yet. Press Type to say hello.")
                         else -> MessageList(
-                            conversation, messages, model.hasMore, listState, selectedId, messageFocus,
-                            onSelect = { selectedId = it.id },
+                            conversation, messages, model.hasMore, listState, lastMessageId, messageFocus,
+                            onSelect = { selectedId = it.id; lastMessageId = it.id },
                             onOpen = { actionMessageId = it.id },
                             onLoadOlder = { scope.launch { model.load(older = true) } },
                             loadAttachment = model::attachmentPath,
@@ -254,13 +283,14 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         onValueChange = model::type,
                         placeholder = "Message",
                         focusRequester = inputFocus,
-                        modifier = Modifier.weight(1f),
+                        // Leaving the messages clears the selection, so Options shows on the left.
+                        modifier = Modifier.weight(1f).onFocusChanged { if (it.isFocused) selectedId = null },
                         onDone = ::send,
                     )
                     Box(
                         Modifier
                             .size(32.dp)
-                            .focusCard(::send, Square, SolidColor(Palette.send))
+                            .focusCard(::send, Square, SolidColor(Palette.send), onFocused = { selectedId = null })
                             .semantics { contentDescription = "Send" },
                         contentAlignment = Alignment.Center,
                     ) { BasicText(">", style = Type.header.copy(color = Palette.background)) }

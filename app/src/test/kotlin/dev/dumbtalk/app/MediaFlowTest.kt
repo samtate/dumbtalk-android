@@ -17,7 +17,7 @@ class MediaFlowTest : KeypadTest() {
         waitUntil("the inline photo") { exists(hasContentDescription("Photo")) }
 
         // Select it, open its panel (1), and choose View: the first action,
-        // two rows below the first reaction.
+        // directly below the reaction rows.
         press(KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_1)
         waitFor("QUICK REACTION")
         waitFor("View")

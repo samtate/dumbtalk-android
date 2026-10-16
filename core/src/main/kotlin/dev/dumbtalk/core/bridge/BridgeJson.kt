@@ -119,6 +119,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
         "sent" -> Receipt(Receipt.State.SENT)
         "delivered" -> Receipt(Receipt.State.DELIVERED)
         "read" -> Receipt(Receipt.State.READ)
+        "failed" -> Receipt(Receipt.State.FAILED)
         else -> null // pending
     }
 

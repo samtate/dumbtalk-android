@@ -20,6 +20,7 @@ class ChatModel(
     private val service: MessagingService,
     private val conversation: () -> Conversation,
     private val scope: CoroutineScope,
+    initialDraft: String = "",
 ) {
     var messages by mutableStateOf<List<Message>?>(null)
         private set
@@ -31,7 +32,7 @@ class ChatModel(
     var sendError by mutableStateOf<String?>(null)
         private set
 
-    var draft by mutableStateOf("")
+    var draft by mutableStateOf(initialDraft)
         private set
     var replyTo by mutableStateOf<Message?>(null)
         private set
@@ -67,6 +68,11 @@ class ChatModel(
     fun type(text: String) {
         if (draft.isEmpty() && text.isNotEmpty()) launch { service.setTyping(conversation(), true) }
         draft = text
+    }
+
+    /** Adds text (an emoji, say) to the end of the draft. */
+    fun append(text: String) {
+        draft += text
     }
 
     fun startReply(message: Message) {

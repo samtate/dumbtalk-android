@@ -75,7 +75,7 @@ internal class TelegramMapper(private val service: TelegramService) {
 
     private fun receipt(chat: TdApi.Chat, message: TdApi.Message): Receipt? = when (message.sendingState) {
         is TdApi.MessageSendingStatePending -> null
-        is TdApi.MessageSendingStateFailed -> null
+        is TdApi.MessageSendingStateFailed -> Receipt(Receipt.State.FAILED)
         // Telegram has no delivered state: a message is sent until read.
         else -> Receipt(if (message.id <= chat.lastReadOutboxMessageId) Receipt.State.READ else Receipt.State.SENT)
     }

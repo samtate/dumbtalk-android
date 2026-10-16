@@ -1,6 +1,8 @@
 package dev.dumbtalk.app
 
 import android.view.KeyEvent
+import androidx.compose.ui.semantics.SemanticsProperties
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.ExperimentalTestApi
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.test.hasText
@@ -49,6 +51,12 @@ abstract class KeypadTest {
         }
     }
 
+    /** Everything on screen, for failure messages. */
+    protected fun visibleTexts(): String =
+        compose.onAllNodes(SemanticsMatcher("any") { true }, useUnmergedTree = true).fetchSemanticsNodes()
+            .flatMap { node -> node.config.getOrNull(SemanticsProperties.Text).orEmpty().map { it.text } }
+            .distinct().take(50).joinToString(" | ")
+
     protected fun exists(matcher: SemanticsMatcher) =
         compose.onAllNodes(matcher, useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty()
 
@@ -56,7 +64,7 @@ abstract class KeypadTest {
         val matcher = hasText(text, substring = true)
         val deadline = System.currentTimeMillis() + timeoutMillis
         while (!exists(matcher)) {
-            check(System.currentTimeMillis() < deadline) { "Timed out waiting for \"$text\"" }
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for \"$text\". On screen: ${visibleTexts()}" }
             step()
         }
     }
@@ -65,7 +73,7 @@ abstract class KeypadTest {
     protected fun waitUntil(what: String, timeoutMillis: Long = 15_000, condition: () -> Boolean) {
         val deadline = System.currentTimeMillis() + timeoutMillis
         while (!condition()) {
-            check(System.currentTimeMillis() < deadline) { "Timed out waiting for $what" }
+            check(System.currentTimeMillis() < deadline) { "Timed out waiting for $what. On screen: ${visibleTexts()}" }
             step()
         }
     }

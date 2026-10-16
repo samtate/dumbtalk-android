@@ -154,7 +154,8 @@ data class Receipt(
     val updatedAt: Long? = null,
     val readBy: List<Reader> = emptyList(),
 ) {
-    enum class State { SENT, DELIVERED, READ }
+    /** FAILED: the service gave up sending it (shown as a red !). */
+    enum class State { SENT, DELIVERED, READ, FAILED }
     data class Reader(val name: String, val status: Status, val at: Long? = null) {
         enum class Status { DELIVERED, READ, VIEWED }
     }
