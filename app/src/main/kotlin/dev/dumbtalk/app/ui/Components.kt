@@ -134,16 +134,6 @@ fun Pill(text: String) {
     )
 }
 
-/** A service as a one-letter tag (S, T, W) instead of a coloured logo. */
-@Composable
-fun ServiceIcon(id: ServiceId, size: Dp = 16.dp) {
-    Box(
-        Modifier.size(size).border(1.dp, Palette.muted, Square).semantics { contentDescription = id.label },
-        contentAlignment = Alignment.Center,
-    ) {
-        BasicText(id.label.take(1), style = Type.small.copy(color = Palette.text, fontSize = (size.value * 0.75f).sp, lineHeight = (size.value * 0.75f).sp))
-    }
-}
 
 /** Up to two initials from words that start with a letter or digit (emoji and symbols are skipped). */
 fun initials(value: String): String =
@@ -153,14 +143,30 @@ fun initials(value: String): String =
         .joinToString("")
         .ifEmpty { "?" }
 
+/**
+ * Subtle tints so chats with the same initials look different; the same
+ * name always gets the same tint. Stands in until real photos are shown.
+ */
+private val avatarTints = listOf(
+    Color(0xFFE6C38F), Color(0xFF8FD3C9), Color(0xFFE7A0AC), Color(0xFFBDAAE8),
+    Color(0xFFB5D98C), Color(0xFF98C2EE), Color(0xFFEDAD80), Color(0xFFD2CBAE),
+)
+
+fun avatarTint(title: String): Color = avatarTints[Math.floorMod(title.hashCode(), avatarTints.size)]
+
 @Composable
 fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean = false) {
+    val tint = if (noteToSelf) Palette.text else avatarTint(title)
     Box(Modifier.size(size)) {
         Box(
-            Modifier.size(size).border(1.dp, Palette.line, Square),
+            Modifier.size(size).border(1.dp, tint.copy(alpha = 0.6f), Square),
             contentAlignment = Alignment.Center,
         ) {
-            BasicText(if (noteToSelf) "*" else initials(title), style = Type.label.copy(fontWeight = FontWeight.Bold))
+            if (noteToSelf) {
+                PixelIcon(PixelArt.PENCIL, size * 0.55f, tint)
+            } else {
+                BasicText(initials(title), style = Type.centered(Type.label.copy(color = tint, fontWeight = FontWeight.Bold)))
+            }
         }
         // Unread count as an inverted block, like a lit display segment.
         if (unread > 0) {
@@ -173,7 +179,10 @@ fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean
                     .padding(horizontal = 3.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(if (unread > 99) "99+" else unread.toString(), style = Type.small.copy(color = Palette.background, fontWeight = FontWeight.Bold))
+                BasicText(
+                    if (unread > 99) "99+" else unread.toString(),
+                    style = Type.centered(Type.small.copy(color = Palette.background, fontWeight = FontWeight.Bold)),
+                )
             }
         }
     }

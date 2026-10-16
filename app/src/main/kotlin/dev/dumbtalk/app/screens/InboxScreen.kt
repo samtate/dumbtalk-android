@@ -157,7 +157,7 @@ fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () 
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(4.dp), verticalAlignment = Alignment.CenterVertically) {
                     if (conversation.isMuted) Icon(AppIcon.MUTE, size = 11.dp, color = Palette.muted)
-                    ServiceIcon(conversation.serviceId)
+                    ServiceIcon(conversation.serviceId, 18.dp)
                 }
             }
             BasicText(previewText(conversation), style = Type.preview, maxLines = 1, overflow = TextOverflow.Ellipsis)
@@ -184,7 +184,8 @@ private fun previewText(conversation: Conversation) = buildAnnotatedString {
         conversation.kind == ConversationKind.GROUP -> firstName(message.sender) ?: "Someone"
         else -> conversation.title
     }
-    withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Palette.time)) { append("$sender: ") }
+    // Regular weight: bold dot matrix smears at preview size.
+    withStyle(SpanStyle(color = Palette.sender)) { append("$sender: ") }
     append(messageSummary(message))
     val receipt = message.receipt?.takeIf { message.direction == Direction.OUTGOING }
     if (receipt != null) {

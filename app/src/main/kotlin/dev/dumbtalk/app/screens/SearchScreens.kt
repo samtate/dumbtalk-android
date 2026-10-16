@@ -72,7 +72,7 @@ fun SearchScreen(app: DumbTalkApp, navigator: Navigator) {
                         conversation?.title ?: result.sender,
                         onClick = { conversation?.let(navigator::openChat) },
                         description = "${result.sender}: ${result.text}",
-                        leading = conversation?.let { { ServiceIcon(it.serviceId, 14.dp) } },
+                        leading = conversation?.let { { ServiceIcon(it.serviceId, 16.dp) } },
                     )
                 }
             }

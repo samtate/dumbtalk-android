@@ -7,10 +7,13 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.text.PlatformTextStyle
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.LineHeightStyle
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.sp
 import dev.dumbtalk.app.R
 
@@ -50,14 +53,14 @@ val DotMatrix = FontFamily(
 )
 
 /**
- * The dot-matrix face covers plain Latin only and blurs below ~12sp, so it
- * styles the UI (names, headers, labels, softkeys, times) while message text
- * uses a plain face that handles emoji, accents and every script.
+ * The dot-matrix face covers plain Latin only (Android falls back to the
+ * system font for other characters, emoji included) and blurs below ~12sp,
+ * so nothing set in it is smaller than that.
  */
 object Type {
-    /** Message text and anything users write. */
-    val body = TextStyle(color = Palette.text, fontSize = 15.sp, lineHeight = 19.sp)
-    val preview = body.copy(color = Palette.muted, fontSize = 13.sp, lineHeight = 16.sp)
+    /** Message text and anything users write. Trial: dot matrix here too. */
+    val body = TextStyle(color = Palette.text, fontFamily = DotMatrix, fontSize = 16.sp, lineHeight = 20.sp)
+    val preview = body.copy(color = Palette.muted, fontSize = 14.sp, lineHeight = 17.sp)
 
     private val dot = TextStyle(color = Palette.text, fontFamily = DotMatrix, letterSpacing = 0.5.sp)
     val title = dot.copy(fontSize = 17.sp, lineHeight = 20.sp)
@@ -66,6 +69,18 @@ object Type {
     val small = dot.copy(color = Palette.time, fontSize = 12.sp, lineHeight = 14.sp)
     val softkey = dot.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
     val section = dot.copy(color = Palette.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+
+    /**
+     * For text centred in a box: drops the font's built-in padding and the
+     * letter spacing after the last glyph, both of which push dot-matrix
+     * text off-centre.
+     */
+    fun centered(style: TextStyle) = style.copy(
+        letterSpacing = 0.sp,
+        platformStyle = PlatformTextStyle(includeFontPadding = false),
+        lineHeightStyle = LineHeightStyle(LineHeightStyle.Alignment.Center, LineHeightStyle.Trim.Both),
+        textAlign = TextAlign.Center,
+    )
 }
 
 @Composable
