@@ -71,6 +71,7 @@ pub(crate) enum Command {
     SetTyping { chat: String, active: bool, reply: Reply },
     SetFlag { chat: String, flag: &'static str, value: bool, reply: Reply },
     ResolvePhone { phone: String, reply: Reply },
+    Contacts(Reply),
     DownloadMedia { chat: String, id: String, reply: Reply },
     SendMedia { chat: String, path: String, mime: String, caption: String, voice_note: bool, reply: Reply },
 }
@@ -181,6 +182,11 @@ impl SignalClient {
 
     pub fn set_muted(&self, chat: String, value: bool) -> Result<(), BridgeError> {
         self.unit(|reply| Command::SetFlag { chat, flag: "muted", value, reply })
+    }
+
+    /// Saved contacts from the main phone: [{"id","name"}], sorted by name.
+    pub fn contacts_json(&self) -> Result<String, BridgeError> {
+        self.call(Command::Contacts)
     }
 
     /// Downloads (once) a received attachment; returns its local path.

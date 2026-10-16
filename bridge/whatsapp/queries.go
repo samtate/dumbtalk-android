@@ -3,7 +3,10 @@
 package wabridge
 
 import (
+	"context"
 	"encoding/json"
+	"sort"
+	"strings"
 	"time"
 
 	"go.mau.fi/whatsmeow/types"
@@ -156,5 +159,32 @@ func (c *Client) SearchJSON(query string) (string, error) {
 	for _, r := range rows {
 		out = append(out, c.toJSONMessage(r, nil))
 	}
+	return marshal(out)
+}
+
+// ContactsJSON lists saved address-book contacts (not everyone seen in
+// groups), sorted by name: [{"id","name","detail"}].
+func (c *Client) ContactsJSON() (string, error) {
+	all, err := c.wa.Store.Contacts.GetAllContacts(context.Background())
+	if err != nil {
+		return "", err
+	}
+	type item struct {
+		ID     string `json:"id"`
+		Name   string `json:"name"`
+		Detail string `json:"detail,omitempty"`
+	}
+	seen := map[string]bool{}
+	out := []item{}
+	for jid, info := range all {
+		name := firstNonEmpty(info.FullName, info.FirstName)
+		canon := c.canonical(jid)
+		if name == "" || canon.Server != types.DefaultUserServer || c.isMe(canon) || seen[canon.String()] {
+			continue
+		}
+		seen[canon.String()] = true
+		out = append(out, item{ID: canon.String(), Name: name, Detail: "+" + canon.User})
+	}
+	sort.Slice(out, func(i, j int) bool { return strings.ToLower(out[i].Name) < strings.ToLower(out[j].Name) })
 	return marshal(out)
 }

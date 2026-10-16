@@ -2,6 +2,7 @@ package dev.dumbtalk.core.bridge
 
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.AttachmentKind
+import dev.dumbtalk.core.Contact
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
@@ -103,6 +104,10 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             poll = json.optString("poll").takeIf { it.isNotEmpty() }?.let(::poll),
             forwardedFrom = if (json.optBoolean("forwarded")) "another chat" else null,
         )
+    }
+
+    fun contacts(encoded: String): List<Contact> = JSONArray(encoded).objects().map {
+        Contact(it.getString("id"), service, it.getString("name"), it.optString("detail").ifBlank { null })
     }
 
     fun searchResults(encoded: String, conversation: Conversation?): List<SearchResult> =

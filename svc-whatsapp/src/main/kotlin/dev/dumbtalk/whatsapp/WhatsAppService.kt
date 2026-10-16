@@ -122,6 +122,7 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun setPinned(chat: String, value: Boolean) = client.setPinned(chat, value)
     override fun setMuted(chat: String, value: Boolean) = client.setMuted(chat, value)
     override fun resolvePhone(phone: String): String = client.resolvePhone(phone)
+    override fun contactsJson(): String = client.contactsJSON()
     override fun downloadMedia(chat: String, id: String): String = client.downloadMedia(chat, id)
     override fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String =
         client.sendMedia(chat, path, mime, caption, voiceNote)

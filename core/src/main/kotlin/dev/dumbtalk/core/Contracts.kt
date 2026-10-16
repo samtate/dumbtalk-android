@@ -187,6 +187,9 @@ data class Message(
 
 data class Member(val id: String, val name: String)
 
+/** Someone in a service's address book, who can be messaged without typing a number. */
+data class Contact(val id: String, val serviceId: ServiceId, val name: String, val detail: String? = null)
+
 enum class ConversationKind { DIRECT, GROUP }
 
 data class Conversation(
@@ -292,6 +295,12 @@ interface MessagingService {
         unsupported("conversation changes")
     suspend fun searchMessages(query: String, conversation: Conversation? = null): List<SearchResult> =
         unsupported("search")
+    /** Saved contacts on this network, sorted by name. */
+    suspend fun listContacts(): List<Contact> = emptyList()
+
+    /** Opens (starting it if need be) the direct chat with [contact]. */
+    suspend fun startChat(contact: Contact): Conversation = unsupported("contacts")
+
     /** Finds or starts a direct chat with a phone number or username. */
     suspend fun createDirect(address: String, title: String? = null): Conversation = unsupported("new messages")
     suspend fun createGroup(name: String, members: List<String>): Unit = unsupported("groups")

@@ -12,6 +12,7 @@ sealed interface Screen {
     data class Setup(val serviceId: ServiceId) : Screen
     data object Search : Screen
     data object NewMessage : Screen
+    data object NewNumber : Screen
 }
 
 class Navigator {

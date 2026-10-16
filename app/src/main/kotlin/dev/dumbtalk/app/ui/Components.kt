@@ -97,7 +97,8 @@ fun Modifier.focusCard(
         }
         .focusable(interactionSource = interaction)
         .pointerInput(Unit) { detectTapGestures { currentOnClick() } }
-        .semantics { onClick { currentOnClick(); true } }
+        // One element for screen readers (and tests): the card with its contents.
+        .semantics(mergeDescendants = true) { onClick { currentOnClick(); true } }
         .clip(shape)
         .background(background, shape)
         .border(if (focused) 2.dp else 1.dp, if (focused) Palette.focus else idleBorder, shape)

@@ -3,6 +3,7 @@ package dev.dumbtalk.core.demo
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Capabilities
+import dev.dumbtalk.core.Contact
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
@@ -240,6 +241,15 @@ class DemoService(
         ))
         return file.absolutePath
     }
+
+    override suspend fun listContacts(): List<Contact> = lock.withLock {
+        val known = conversations.values.filter { it.kind == ConversationKind.DIRECT && !it.isNoteToSelf }.map { it.remoteId to it.title }
+        (known + listOf("kim" to "Alex Kim"))
+            .map { (remote, name) -> Contact(remote, id, name, "+4470000${remote.hashCode().mod(100000)}") }
+            .sortedBy { it.name }
+    }
+
+    override suspend fun startChat(contact: Contact): Conversation = createDirect(contact.id, contact.name)
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> = lock.withLock {
         messages.values.flatten()

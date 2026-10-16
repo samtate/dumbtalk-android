@@ -194,6 +194,16 @@ impl Db {
             .map(|row| row.get("name")))
     }
 
+    /// Names of direct-chat contacts from the main phone, sorted by name.
+    pub async fn contact_names(&self) -> Result<Vec<(String, String)>> {
+        Ok(sqlx::query("SELECT chat, name FROM names WHERE chat LIKE 'c:%' AND name != '' ORDER BY name COLLATE NOCASE")
+            .fetch_all(&self.pool)
+            .await?
+            .iter()
+            .map(|row| (row.get("chat"), row.get("name")))
+            .collect())
+    }
+
     /// Adds a chat with no messages yet, leaving existing chats untouched.
     pub async fn seed_chat(&self, chat: &str, ts: i64) -> Result<()> {
         sqlx::query("INSERT OR IGNORE INTO chats (id, last_ts) VALUES (?, ?)")

@@ -137,6 +137,20 @@ impl Engine {
         Ok(Value::Array(out).to_string())
     }
 
+    pub(super) async fn contacts(self: &Rc<Self>) -> Result<String, BridgeError> {
+        let me = self.own_aci().map(|aci| format!("c:{aci}"));
+        let contacts: Vec<Value> = self
+            .db
+            .contact_names()
+            .await
+            .map_err(fail)?
+            .into_iter()
+            .filter(|(id, _)| Some(id) != me.as_ref())
+            .map(|(id, name)| json!({ "id": id, "name": name }))
+            .collect();
+        Ok(Value::Array(contacts).to_string())
+    }
+
     pub(super) async fn search(self: &Rc<Self>, query: &str) -> Result<String, BridgeError> {
         let rows = self.db.search(query, 50).await.map_err(fail)?;
         let mut out = Vec::with_capacity(rows.len());

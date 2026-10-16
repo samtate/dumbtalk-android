@@ -1,5 +1,6 @@
 package dev.dumbtalk.core.bridge
 
+import dev.dumbtalk.core.Contact
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
@@ -55,6 +56,8 @@ interface NativeBridge {
     fun setMuted(chat: String, value: Boolean)
     /** Chat id for a phone number on this network. */
     fun resolvePhone(phone: String): String
+    /** Saved contacts as [{"id": chat id, "name", "detail"?}], sorted by name. */
+    fun contactsJson(): String
 
     /** Downloads (once) a message's attachment; returns its local path. */
     fun downloadMedia(chat: String, id: String): String
@@ -255,6 +258,10 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         bridge { sendMedia(conversation.remoteId, path, mimeType, "", true) }
         emit(ServiceEvent.MessagesChanged(id, conversation.id))
     }
+
+    override suspend fun listContacts(): List<Contact> = json.contacts(bridge { contactsJson() })
+
+    override suspend fun startChat(contact: Contact): Conversation = json.conversation(bridge { chatJson(contact.id) })
 
     override suspend fun createDirect(address: String, title: String?): Conversation {
         val chat = bridge { resolvePhone(address) }

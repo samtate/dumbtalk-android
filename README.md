@@ -6,8 +6,9 @@ server: the same keypad interface, but every messaging service runs on the phone
 needed.
 
 > **Status: early development.** Signal (presage), Telegram (TDLib) and WhatsApp (whatsmeow) run
-> natively on the phone; a foreground service keeps them connected and posts per-chat
-> notifications. See [docs/plan.md](docs/plan.md) for what's next.
+> natively on the phone with text, reactions, edits, photos, stickers, voice notes and files; a
+> foreground service keeps them connected and posts per-chat notifications. See
+> [docs/plan.md](docs/plan.md) for what's next.
 
 DumbTalk is unofficial and is not affiliated with Signal, Telegram or WhatsApp.
 

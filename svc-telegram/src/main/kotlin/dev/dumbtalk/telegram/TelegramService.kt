@@ -2,6 +2,7 @@ package dev.dumbtalk.telegram
 
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
+import dev.dumbtalk.core.Contact
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
@@ -544,6 +545,20 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
                 val mapped = synchronized(chat) { mapper.message(chat, message) }
                 SearchResult(mapped.id, conversationId(chat.id), mapped.sender.orEmpty(), mapped.text.orEmpty(), mapped.sentAt)
             }
+    }
+
+    override suspend fun listContacts(): List<Contact> {
+        val client = requireClient()
+        return client.send(TdApi.GetContacts()).userIds.toList()
+            .mapNotNull { id -> users[id] ?: runCatching { client.send(TdApi.GetUser(id)) }.getOrNull() }
+            .map { Contact(it.id.toString(), id, mapper.userName(it), it.phoneNumber.takeIf { n -> n.isNotBlank() }?.let { n -> "+$n" }) }
+            .sortedBy { it.name.lowercase() }
+    }
+
+    override suspend fun startChat(contact: Contact): Conversation {
+        val chat = requireClient().send(TdApi.CreatePrivateChat(contact.id.toLong(), false))
+        chats.putIfAbsent(chat.id, chat)
+        return synchronized(chat) { mapper.conversation(chats.getValue(chat.id)) }
     }
 
     override suspend fun createDirect(address: String, title: String?): Conversation {

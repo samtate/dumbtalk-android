@@ -29,6 +29,7 @@ import dev.dumbtalk.app.screens.ChatScreen
 import dev.dumbtalk.app.screens.InboxScreen
 import dev.dumbtalk.app.screens.MenuScreen
 import dev.dumbtalk.app.screens.NewMessageScreen
+import dev.dumbtalk.app.screens.NewNumberScreen
 import dev.dumbtalk.app.screens.SearchScreen
 import dev.dumbtalk.app.screens.ServicesScreen
 import dev.dumbtalk.app.screens.SetupScreen
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
+                                    Screen.NewNumber -> NewNumberScreen(app, navigator)
                                 }
                             }
                         }

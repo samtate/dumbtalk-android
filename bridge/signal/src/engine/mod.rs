@@ -178,6 +178,7 @@ impl Engine {
                 send(reply, result.and_then(|_| ok()))
             }
             Command::ResolvePhone { phone, reply } => send(reply, self.resolve_phone(&phone).await),
+            Command::Contacts(reply) => send(reply, self.contacts().await),
             Command::DownloadMedia { chat, id, reply } => send(reply, self.download_media(&chat, &id).await),
             Command::SendMedia { chat, path, mime, caption, voice_note, reply } => {
                 send(reply, self.send_media(&chat, &path, &mime, &caption, voice_note).await)

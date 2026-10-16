@@ -61,6 +61,7 @@ private class FakeBridge : NativeBridge {
     override fun setPinned(chat: String, value: Boolean) = call("pin:$value")
     override fun setMuted(chat: String, value: Boolean) = call("mute:$value")
     override fun resolvePhone(phone: String) = "c:resolved"
+    override fun contactsJson() = """[{"id":"c:1","name":"Maya","detail":"+447000000001"},{"id":"c:2","name":"Zed"}]"""
     override fun downloadMedia(chat: String, id: String): String { call("download:$id"); return "/tmp/$id.jpg" }
     override fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String {
         call("media:$mime:$voiceNote")
