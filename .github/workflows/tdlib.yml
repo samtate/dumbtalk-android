@@ -1,0 +1,66 @@
+name: TDLib
+
+# Builds TDLib (Java interface, arm64-v8a) once per pinned version and
+# publishes it as a release asset that app builds download. Re-run when
+# tdlib.properties changes.
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: [tdlib.properties, .github/workflows/tdlib.yml]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Read pinned version
+        run: cat tdlib.properties | sed 's/ *= */=/' >> "$GITHUB_ENV"
+
+      - name: Skip if already published
+        id: existing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if gh release view "tdlib-$TDLIB_VERSION" >/dev/null 2>&1; then echo "found=true" >> "$GITHUB_OUTPUT"; fi
+
+      - name: Install build tools
+        if: steps.existing.outputs.found != 'true'
+        run: sudo apt-get update && sudo apt-get install -y gperf php-cli
+
+      - uses: actions/setup-java@v4
+        if: steps.existing.outputs.found != 'true'
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Install NDK and CMake
+        if: steps.existing.outputs.found != 'true'
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;$TDLIB_NDK" "cmake;3.22.1" "platforms;android-34" >/dev/null
+
+      - name: Build
+        if: steps.existing.outputs.found != 'true'
+        run: |
+          git clone https://github.com/tdlib/td "$RUNNER_TEMP/td"
+          cd "$RUNNER_TEMP/td" && git checkout "$TDLIB_COMMIT"
+          cd example/android
+          ./build-openssl.sh "$ANDROID_HOME" "$TDLIB_NDK"
+          ./build-tdlib.sh "$ANDROID_HOME" "$TDLIB_NDK" third-party/openssl c++_static Java 29 arm64-v8a
+          cp tdlib/tdlib.zip "$GITHUB_WORKSPACE/tdlib-$TDLIB_VERSION.zip"
+
+      - name: Publish
+        if: steps.existing.outputs.found != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "tdlib-$TDLIB_VERSION" "tdlib-$TDLIB_VERSION.zip" \
+            --title "TDLib $TDLIB_VERSION (arm64-v8a)" --prerelease \
+            --notes "TDLib commit $TDLIB_COMMIT built for arm64-v8a, minSdk 29, Java interface. Used by app builds; not an app release."
