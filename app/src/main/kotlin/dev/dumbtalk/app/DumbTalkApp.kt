@@ -1,11 +1,15 @@
 package dev.dumbtalk.app
 
 import android.app.Application
+import android.os.Build
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.ServiceRegistry
 import dev.dumbtalk.core.demo.DemoService
+import dev.dumbtalk.telegram.TelegramConfig
+import dev.dumbtalk.telegram.TelegramService
+import dev.dumbtalk.whatsapp.WhatsAppService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -15,6 +19,8 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.launch
+import java.io.File
+import java.util.Locale
 
 class DumbTalkApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -25,9 +31,22 @@ class DumbTalkApp : Application() {
 
     override fun onCreate() {
         super.onCreate()
-        // Real services replace these one by one; debug builds keep the demo
-        // data so the UI can be worked on without linking accounts.
-        registry = ServiceRegistry(ServiceId.entries.map { DemoService(it, scope) })
+        val telegram = TelegramService(
+            TelegramConfig(
+                dataDir = File(filesDir, "telegram"),
+                apiId = BuildConfig.TELEGRAM_API_ID,
+                apiHash = BuildConfig.TELEGRAM_API_HASH,
+                deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
+                systemVersion = "Android ${Build.VERSION.RELEASE}",
+                appVersion = BuildConfig.VERSION_NAME,
+                language = Locale.getDefault().language.ifBlank { "en" },
+            ),
+            scope,
+        )
+        // Services not built yet appear as demos in debug builds only.
+        fun demo(id: ServiceId) = if (BuildConfig.DEMO_SERVICES) DemoService(id, scope) else null
+        val whatsapp = WhatsAppService(File(filesDir, "whatsapp"), "DumbTalk (${Build.MODEL})", scope)
+        registry = ServiceRegistry(listOfNotNull(demo(ServiceId.SIGNAL), telegram, whatsapp))
         inbox = InboxModel(registry, scope)
     }
 }

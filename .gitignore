@@ -8,3 +8,5 @@ captures/
 *.keystore
 *.jks
 !app/debug.keystore
+svc-telegram/tdlib/
+svc-whatsapp/libs/

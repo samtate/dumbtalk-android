@@ -143,8 +143,8 @@ class DemoService(
         ConversationPage(all.filter { it.isArchived == archived }, all.count { it.isArchived })
     }
 
-    override suspend fun listMessages(conversation: Conversation, before: Long?): MessagePage = lock.withLock {
-        val all = messages[conversation.id].orEmpty().filter { before == null || it.sentAt < before }
+    override suspend fun listMessages(conversation: Conversation, before: Message?): MessagePage = lock.withLock {
+        val all = messages[conversation.id].orEmpty().filter { before == null || it.sentAt < before.sentAt }
         MessagePage(
             messages = all.takeLast(PAGE),
             hasMore = all.size > PAGE,
@@ -237,7 +237,7 @@ class DemoService(
             .map { SearchResult(it.id, it.conversationId, it.sender ?: "", it.text.orEmpty(), it.sentAt) }
     }
 
-    override fun createDirect(address: String, title: String?): Conversation {
+    override suspend fun createDirect(address: String, title: String?): Conversation = lock.withLock {
         val conversation = Conversation(
             id = "${id.key}:$address",
             serviceId = id,
@@ -245,8 +245,7 @@ class DemoService(
             kind = ConversationKind.DIRECT,
             title = title ?: address,
         )
-        conversations.putIfAbsent(conversation.id, conversation)
-        return conversation
+        conversations.getOrPut(conversation.id) { conversation }
     }
 
     private suspend fun update(conversationId: String, change: (Conversation) -> Conversation) {

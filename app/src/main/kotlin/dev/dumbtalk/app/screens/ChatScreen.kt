@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -113,14 +114,28 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
 
     suspend fun load(older: Boolean = false) {
         runCatching {
-            val before = if (older) messages?.firstOrNull()?.sentAt else null
+            val before = if (older) messages?.firstOrNull() else null
             service.listMessages(conversation, before)
         }.onSuccess { page ->
-            messages = if (older) page.messages + messages.orEmpty() else page.messages
-            if (!older) hasMore = page.hasMore
+            if (older) {
+                val known = messages.orEmpty().map { it.id }.toSet()
+                messages = page.messages.filterNot { it.id in known } + messages.orEmpty()
+                hasMore = page.hasMore
+            } else {
+                // Keep older pages already loaded; replace the newest window.
+                val oldest = page.messages.firstOrNull()?.sentAt
+                val earlier = if (oldest == null) emptyList() else messages.orEmpty().filter { it.sentAt < oldest }
+                messages = earlier + page.messages
+                if (earlier.isEmpty()) hasMore = page.hasMore
+            }
             error = null
             if (page.messages.any { it.direction == Direction.INCOMING }) runCatching { service.markRead(conversation) }
         }.onFailure { error = it.message ?: "Could not load messages" }
+    }
+
+    DisposableEffect(screen.conversationId) {
+        scope.launch { runCatching { service.openConversation(conversation) } }
+        onDispose { app.scope.launch { runCatching { service.closeConversation(conversation) } } }
     }
 
     LaunchedEffect(screen.conversationId) {

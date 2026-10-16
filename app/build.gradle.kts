@@ -1,9 +1,20 @@
+import java.util.Properties
+
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.roborazzi)
 }
+
+// Telegram app credentials (my.telegram.org): TELEGRAM_API_ID/TELEGRAM_API_HASH
+// from the environment (CI secrets) or telegram.api_id/telegram.api_hash in
+// local.properties. Without them, setup asks on the phone.
+val localProperties = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
+}
+val telegramApiId = System.getenv("TELEGRAM_API_ID") ?: localProperties.getProperty("telegram.api_id") ?: "0"
+val telegramApiHash = System.getenv("TELEGRAM_API_HASH") ?: localProperties.getProperty("telegram.api_hash") ?: ""
 
 android {
     namespace = "dev.dumbtalk.app"
@@ -16,6 +27,8 @@ android {
         versionCode = 1
         versionName = "0.1.0"
         ndk { abiFilters += "arm64-v8a" }
+        buildConfigField("int", "TELEGRAM_API_ID", telegramApiId.ifBlank { "0" })
+        buildConfigField("String", "TELEGRAM_API_HASH", "\"$telegramApiHash\"")
     }
 
     signingConfigs {
@@ -69,6 +82,8 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":svc-telegram"))
+    implementation(project(":svc-whatsapp"))
     implementation(libs.androidx.core.ktx)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.compose)

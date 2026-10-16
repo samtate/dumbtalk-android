@@ -36,6 +36,7 @@ import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 @Composable
 fun SearchScreen(app: DumbTalkApp, navigator: Navigator) {
@@ -92,12 +93,18 @@ fun NewMessageScreen(app: DumbTalkApp, navigator: Navigator) {
     LaunchedEffect(requester) { runCatching { requester.requestFocus() } }
 
     val service = chosen ?: services?.singleOrNull()
+    var busy by remember { mutableStateOf(false) }
     fun start() {
         val target = service ?: return
-        if (address.isBlank()) return
-        runCatching { target.createDirect(address.trim()) }
-            .onSuccess { navigator.pop(); navigator.openChat(it) }
-            .onFailure { error = it.message }
+        if (address.isBlank() || busy) return
+        busy = true
+        error = null
+        scope.launch {
+            runCatching { target.createDirect(address.trim()) }
+                .onSuccess { navigator.pop(); navigator.openChat(it) }
+                .onFailure { error = it.message ?: "Could not find that contact" }
+            busy = false
+        }
     }
 
     Softkeys(

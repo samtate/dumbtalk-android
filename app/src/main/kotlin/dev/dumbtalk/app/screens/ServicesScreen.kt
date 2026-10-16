@@ -25,6 +25,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -206,7 +207,11 @@ fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
                     onDone = { if (input.isNotBlank()) advance(input.trim()) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp),
                 )
-                is SetupStep.Qr -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { QrCode(current.payload) }
+                is SetupStep.Qr -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                    // As large as fits: dense WhatsApp codes need it for older cameras.
+                    val width = LocalConfiguration.current.screenWidthDp
+                    QrCode(current.payload, size = (width - 24).coerceIn(160, 320).dp)
+                }
                 is SetupStep.PairCode -> BasicText(
                     current.code,
                     style = Type.title.copy(fontSize = 24.sp, letterSpacing = 2.sp),

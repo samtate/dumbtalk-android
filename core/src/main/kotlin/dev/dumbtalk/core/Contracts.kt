@@ -271,8 +271,13 @@ interface MessagingService {
     suspend fun disconnect()
 
     suspend fun listConversations(archived: Boolean): ConversationPage
-    suspend fun listMessages(conversation: Conversation, before: Long? = null): MessagePage
+    /** Newest page when [before] is null, else the page older than [before]. */
+    suspend fun listMessages(conversation: Conversation, before: Message? = null): MessagePage
     suspend fun markRead(conversation: Conversation)
+
+    /** Called while a chat is on screen; networks use it for live updates and read state. */
+    suspend fun openConversation(conversation: Conversation) {}
+    suspend fun closeConversation(conversation: Conversation) {}
     suspend fun sendText(conversation: Conversation, text: String, replyTo: Message? = null): Message
     suspend fun setTyping(conversation: Conversation, active: Boolean) {}
     suspend fun messageDetails(conversation: Conversation, message: Message): Message = message
@@ -283,7 +288,8 @@ interface MessagingService {
         unsupported("conversation changes")
     suspend fun searchMessages(query: String, conversation: Conversation? = null): List<SearchResult> =
         unsupported("search")
-    fun createDirect(address: String, title: String? = null): Conversation = unsupported("new messages")
+    /** Finds or starts a direct chat with a phone number or username. */
+    suspend fun createDirect(address: String, title: String? = null): Conversation = unsupported("new messages")
     suspend fun createGroup(name: String, members: List<String>): Unit = unsupported("groups")
     suspend fun settings(): ServiceSettings = ServiceSettings()
     suspend fun updateSettings(settings: ServiceSettings): ServiceSettings = unsupported("settings")

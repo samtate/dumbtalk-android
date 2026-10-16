@@ -22,10 +22,30 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Fetch TDLib
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-tdlib.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: bridge/whatsapp/go.sum
+
+      - name: Build WhatsApp bridge
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" >/dev/null
+          (cd bridge/whatsapp && go test ./...)
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-wabridge.sh
+
       - name: Test
         run: ./gradlew :core:testDebugUnitTest :app:testDebugUnitTest
 
       - name: Build debug APK
+        env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: ./gradlew :app:assembleDebug
 
       - uses: actions/upload-artifact@v4
@@ -55,8 +75,27 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Fetch TDLib
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/fetch-tdlib.sh
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.26.x"
+          cache-dependency-path: bridge/whatsapp/go.sum
+
+      - name: Build WhatsApp bridge
+        run: |
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
+          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" >/dev/null
+          (cd bridge/whatsapp && go test ./...)
+          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-wabridge.sh
+
       - name: Build signed release APK
         env:
+          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
+          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
           KEYSTORE_BASE64: ${{ secrets.DUMBTALK_KEYSTORE_BASE64 }}
           DUMBTALK_KEYSTORE_PASSWORD: ${{ secrets.DUMBTALK_KEYSTORE_PASSWORD }}
           DUMBTALK_KEY_ALIAS: ${{ secrets.DUMBTALK_KEY_ALIAS }}
