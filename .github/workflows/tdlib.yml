@@ -52,8 +52,12 @@ jobs:
           git clone https://github.com/tdlib/td "$RUNNER_TEMP/td"
           cd "$RUNNER_TEMP/td" && git checkout "$TDLIB_COMMIT"
           cd example/android
+          # This TDLib version's scripts hard-code every ABI and ignore
+          # extra arguments, so narrow them to arm64 (and API 29) here.
+          sed -i 's/for ABI in arm64-v8a armeabi-v7a x86_64 x86 ; do/for ABI in arm64-v8a ; do/; s/android-16/android-29/' build-openssl.sh build-tdlib.sh
+          grep -q 'for ABI in arm64-v8a ; do' build-tdlib.sh || { echo "TDLib build script changed; update the ABI patch"; exit 1; }
           ./build-openssl.sh "$ANDROID_HOME" "$TDLIB_NDK"
-          ./build-tdlib.sh "$ANDROID_HOME" "$TDLIB_NDK" third-party/openssl c++_static Java 29 arm64-v8a
+          ./build-tdlib.sh "$ANDROID_HOME" "$TDLIB_NDK" third-party/openssl c++_static Java
           cp tdlib/tdlib.zip "$GITHUB_WORKSPACE/tdlib-$TDLIB_VERSION.zip"
 
       - name: Publish
