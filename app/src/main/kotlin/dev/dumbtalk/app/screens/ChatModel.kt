@@ -70,6 +70,13 @@ class ChatModel(
         draft = text
     }
 
+    /** The draft as a caption (null if empty), clearing it. */
+    fun takeDraft(): String? = draft.trim().takeIf { it.isNotEmpty() }.also { draft = "" }
+
+    fun clearDraft() {
+        draft = ""
+    }
+
     /** Adds text (an emoji, say) to the end of the draft. */
     fun append(text: String) {
         draft += text
@@ -131,7 +138,8 @@ class ChatModel(
         downloaded[message.id] ?: service.downloadAttachment(conversation(), message, message.attachments.first())
             .also { downloaded[message.id] = it }
 
-    fun sendFile(path: String, mime: String) = sendMedia { service.sendAttachment(conversation(), path, mime) }
+    fun sendFile(path: String, mime: String, caption: String? = null) =
+        sendMedia { service.sendAttachment(conversation(), path, mime, caption) }
 
     fun sendVoiceNote(path: String, mime: String, durationMillis: Long) =
         sendMedia { service.sendVoiceNote(conversation(), path, mime, durationMillis) }

@@ -102,7 +102,7 @@ internal class TelegramMapper(private val service: TelegramService) {
             original.isOutgoing -> "You"
             else -> senderName(original.senderId) ?: chat.title
         }
-        return Quote(author, text, original?.date?.times(1000L))
+        return Quote(author, text, original?.date?.times(1000L), messageId = reply.messageId.toString())
     }
 
     private fun forwardedFrom(info: TdApi.MessageForwardInfo?): String? = when (val origin = info?.origin) {

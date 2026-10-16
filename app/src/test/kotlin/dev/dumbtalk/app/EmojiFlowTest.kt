@@ -27,18 +27,14 @@ class EmojiFlowTest : KeypadTest() {
     }
 
     @Test
-    fun emojiFromChatOptionsLandsInTheDraft() {
+    fun emojiButtonLandsInTheDraft() {
         waitFor("Maya Chen")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Perfect! Meet at the station")
-        // With a message selected the left softkey is Message; moving to the
-        // composer clears the selection and it becomes Options.
-        waitFor("1=MESSAGE")
-        compose.onNodeWithContentDescription("Send").requestFocus()
-        waitFor("1=OPTIONS")
-        press(KeyEvent.KEYCODE_1)
-        waitFor("Emoji")
-        press(KeyEvent.KEYCODE_DPAD_CENTER) // the first tile is Emoji
+        // The composer's emoji button relabels the centre key and opens the grid.
+        compose.onNodeWithContentDescription("Emoji").requestFocus()
+        waitFor("EMOJI")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("🥺") // the emoji grid is open
         press(KeyEvent.KEYCODE_DPAD_CENTER) // 😀
         waitUntil("the emoji in the draft") { exists(hasSetTextAction() and hasText("😀")) }

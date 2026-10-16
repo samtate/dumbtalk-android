@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.ui.focus.focusProperties
 import dev.dumbtalk.app.ui.attachmentLine
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.app.media.AudioPlayer
@@ -67,6 +68,8 @@ internal fun MessageList(
     onOpen: (Message) -> Unit,
     onLoadOlder: () -> Unit,
     loadAttachment: suspend (Message) -> String,
+    /** Focus target for D-pad down from the newest message: the message box. */
+    belowLast: FocusRequester,
 ) {
     val zone = ZoneId.systemDefault()
     val time = remember { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT) }
@@ -117,6 +120,7 @@ internal fun MessageList(
                     focusRequester = if (message.id == selectedId) selectedFocus else null,
                     onFocus = { onSelect(message) },
                     onOpen = { onOpen(message) },
+                    downTo = if (index == messages.lastIndex) belowLast else null,
                 )
             }
         }
@@ -147,6 +151,7 @@ private fun Bubble(
     focusRequester: FocusRequester?,
     onFocus: () -> Unit,
     onOpen: () -> Unit,
+    downTo: FocusRequester? = null,
 ) {
     if (message.direction == Direction.SYSTEM) {
         CenteredMessage(message.text.orEmpty(), Modifier.padding(vertical = 2.dp))
@@ -158,6 +163,7 @@ private fun Bubble(
             Modifier
                 .padding(vertical = 2.dp)
                 .widthIn(max = maxWidth)
+                .then(if (downTo != null) Modifier.focusProperties { down = downTo } else Modifier)
                 .focusCard(
                     onOpen, Square, SolidColor(lerp(Palette.background, tint, 0.24f)),
                     focusRequester, onFocus, idleBorder = tint.copy(alpha = 0.7f), claimsCenter = false,

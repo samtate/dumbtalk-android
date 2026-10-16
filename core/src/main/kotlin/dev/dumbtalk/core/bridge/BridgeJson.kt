@@ -97,7 +97,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             },
             receipt = if (fromMe) receipt(json.optString("status")) else null,
             quote = json.optString("quoteId").takeIf { it.isNotEmpty() }?.let {
-                Quote(json.optString("quoteSender").ifBlank { "Message" }, json.optString("quoteText").ifBlank { null })
+                Quote(json.optString("quoteSender").ifBlank { "Message" }, json.optString("quoteText").ifBlank { null }, messageId = it)
             },
             edited = json.optBoolean("edited"),
             deleted = json.optBoolean("deleted"),

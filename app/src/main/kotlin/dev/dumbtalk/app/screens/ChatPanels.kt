@@ -139,8 +139,6 @@ internal fun ChatOptions(
     conversation: Conversation,
     onClose: () -> Unit,
     onUpdate: (ConversationUpdate) -> Unit,
-    /** Sending files and voice notes, when the service supports them. */
-    send: List<MenuItem> = emptyList(),
 ) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
@@ -149,7 +147,7 @@ internal fun ChatOptions(
         Header(conversation.title)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
             MenuGrid(
-                send + listOf(
+                listOf(
                     MenuItem(if (conversation.isFavourite) "Unstar" else "Star", AppIcon.STAR) { onUpdate(ConversationUpdate(favourite = !conversation.isFavourite)) },
                     MenuItem(if (conversation.isMuted) "Unmute" else "Mute", AppIcon.MUTE) { onUpdate(ConversationUpdate(muted = !conversation.isMuted)) },
                     MenuItem(if (conversation.isArchived) "Unarchive" else "Archive", AppIcon.ARCHIVE) { onUpdate(ConversationUpdate(archived = !conversation.isArchived)) },

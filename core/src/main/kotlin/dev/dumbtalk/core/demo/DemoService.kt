@@ -290,7 +290,7 @@ class DemoService(
         messages.clear()
         val now = clock()
         fun minutesAgo(minutes: Int) = now - minutes * 60_000L
-        fun chat(remote: String, title: String, kind: ConversationKind, unread: Int = 0, favourite: Boolean = false, muted: Boolean = false, members: List<String> = emptyList(), vararg lines: Triple<Int, String?, String>) {
+        fun chat(remote: String, title: String, kind: ConversationKind, unread: Int = 0, favourite: Boolean = false, muted: Boolean = false, members: List<String> = emptyList(), quoteIndex: Int? = null, vararg lines: Triple<Int, String?, String>) {
             val conversationId = "${id.key}:$remote"
             conversations[conversationId] = Conversation(
                 id = conversationId,
@@ -316,10 +316,16 @@ class DemoService(
                     receipt = if (sender == null) Receipt(Receipt.State.READ) else null,
                 )
             }.toMutableList()
+            // The last message replies to the one at quoteIndex.
+            if (quoteIndex != null) {
+                val list = messages.getValue(conversationId)
+                val quoted = list[quoteIndex]
+                list[list.lastIndex] = list.last().copy(quote = dev.dumbtalk.core.Quote(quoted.sender ?: title, quoted.text, quoted.sentAt, messageId = quoted.id))
+            }
         }
         when (id) {
             ServiceId.SIGNAL -> {
-                chat("maya", "Maya Chen", ConversationKind.DIRECT, unread = 2, favourite = true, lines = arrayOf(
+                chat("maya", "Maya Chen", ConversationKind.DIRECT, unread = 2, favourite = true, quoteIndex = 1, lines = arrayOf(
                     Triple(40, "Maya Chen", "Are we still on for tomorrow?"),
                     Triple(38, null, "Yes! 10am?"),
                     Triple(20, "Maya Chen", "PHOTO"),

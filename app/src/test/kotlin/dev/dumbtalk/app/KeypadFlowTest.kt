@@ -34,9 +34,9 @@ class KeypadFlowTest : KeypadTest() {
         waitFor("👍")
         waitFor("Count me in!")
 
-        // Centre (Type) focuses the composer and centre (Send) sends. Back
+        // Down from the newest message focuses the message box; centre sends. Back
         // leaves the composer and the softkeys come back (they once stuck).
-        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        press(KeyEvent.KEYCODE_DPAD_DOWN) // from the newest message to the message box
         compose.onNode(hasSetTextAction()).performTextInput("Leaving now")
         waitFor("SEND")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
@@ -48,7 +48,7 @@ class KeypadFlowTest : KeypadTest() {
         // Centre on the focused Send button sends (the Type softkey once took
         // the key). Robolectric's text field keeps D-pad right for its
         // cursor, so focus the button directly, as right does on a phone.
-        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        press(KeyEvent.KEYCODE_DPAD_DOWN) // from the newest message to the message box
         compose.onNode(hasSetTextAction()).performTextInput("Via the button")
         compose.onNodeWithContentDescription("Send").requestFocus()
         step()

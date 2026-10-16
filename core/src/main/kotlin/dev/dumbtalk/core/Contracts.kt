@@ -86,7 +86,8 @@ data class Attachment(
     val sticker: Boolean = false,
 )
 
-data class Quote(val author: String, val text: String? = null, val sentAt: Long? = null)
+/** [messageId] is the quoted message's id (same form as [Message.id]), so the UI can jump to it. */
+data class Quote(val author: String, val text: String? = null, val sentAt: Long? = null, val messageId: String? = null)
 
 data class LinkPreview(val title: String, val description: String? = null, val url: String? = null)
 
