@@ -1,6 +1,12 @@
 package dev.dumbtalk.app
 
+import android.Manifest
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.net.Uri
 import android.os.Bundle
+import android.os.PowerManager
+import android.provider.Settings
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -14,6 +20,16 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.lifecycle.lifecycleScope
+import dev.dumbtalk.app.background.MessageNotifier
+import dev.dumbtalk.app.background.Visibility
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.ui.Modifier
 import dev.dumbtalk.app.screens.ChatScreen
@@ -36,6 +52,8 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as DumbTalkApp
+        askForBackgroundPermissions()
+        openFromNotification(intent)
         setContent {
             DumbTalkTheme {
                 CompositionLocalProvider(LocalSoftkeys provides softkeys) {
@@ -49,6 +67,7 @@ class MainActivity : ComponentActivity() {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
                             val saveable = rememberSaveableStateHolder()
                             val screen = navigator.current
+                            LaunchedEffect(screen, resumed) { reportVisible(screen) }
                             saveable.SaveableStateProvider(screen.toString()) {
                                 when (screen) {
                                     is Screen.Inbox -> InboxScreen(app, navigator, screen.archived)
@@ -66,6 +85,76 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
+    }
+
+    private var resumed by mutableStateOf(false)
+
+    override fun onResume() {
+        super.onResume()
+        resumed = true
+    }
+
+    override fun onPause() {
+        resumed = false
+        Visibility.current = null
+        super.onPause()
+    }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        openFromNotification(intent)
+    }
+
+    /** Tells the notifier what's on screen, and clears an opened chat's notification. */
+    private fun reportVisible(screen: Screen) {
+        if (!resumed) return
+        Visibility.current = when (screen) {
+            is Screen.Inbox -> "inbox"
+            is Screen.Chat -> screen.conversationId.also { (application as DumbTalkApp).notifier.clear(it) }
+            else -> "other"
+        }
+    }
+
+    /** Opens the chat a notification points at, once the inbox knows about it. */
+    private fun openFromNotification(intent: Intent?) {
+        val id = intent?.getStringExtra(MessageNotifier.EXTRA_CONVERSATION)?.takeIf { it.isNotEmpty() } ?: return
+        intent.removeExtra(MessageNotifier.EXTRA_CONVERSATION)
+        val app = application as DumbTalkApp
+        lifecycleScope.launch {
+            val conversation = withTimeoutOrNull(15_000) {
+                app.inbox.active.first { page -> page != null && app.inbox.find(id) != null }
+                app.inbox.find(id)
+            } ?: app.inbox.find(id) ?: return@launch
+            navigator.popToRoot()
+            navigator.openChat(conversation)
+        }
+    }
+
+    /**
+     * Notifications need permission on Android 13+, and staying connected in
+     * Doze needs a battery-optimisation exemption. Ask once each.
+     */
+    private fun askForBackgroundPermissions() {
+        val prefs = getSharedPreferences("setup", MODE_PRIVATE)
+        if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED &&
+            !prefs.getBoolean("asked-notifications", false)
+        ) {
+            prefs.edit().putBoolean("asked-notifications", true).apply()
+            requestPermissions(arrayOf(Manifest.permission.POST_NOTIFICATIONS), 1)
+            return
+        }
+        val power = getSystemService(PowerManager::class.java)
+        if (!power.isIgnoringBatteryOptimizations(packageName) && !prefs.getBoolean("asked-battery", false)) {
+            prefs.edit().putBoolean("asked-battery", true).apply()
+            runCatching {
+                startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS, Uri.parse("package:$packageName")))
+            }
+        }
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        askForBackgroundPermissions()
     }
 
     override fun dispatchKeyEvent(event: KeyEvent): Boolean =

@@ -10,3 +10,6 @@ captures/
 !app/debug.keystore
 svc-telegram/tdlib/
 svc-whatsapp/libs/
+svc-signal/libs/
+svc-signal/src/main/jniLibs/
+svc-signal/src/main/kotlin-generated/

@@ -26,6 +26,9 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalContext
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
@@ -207,6 +210,10 @@ fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
                     onDone = { if (input.isNotBlank()) advance(input.trim()) },
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp),
                 )
+                is SetupStep.Qr -> OpenInApp(current.payload, requester)
+                else -> Unit
+            }
+            when (current) {
                 is SetupStep.Qr -> Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
                     // As large as fits: dense WhatsApp codes need it for older cameras.
                     val width = LocalConfiguration.current.screenWidthDp
@@ -217,13 +224,39 @@ fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
                     style = Type.title.copy(fontSize = 24.sp, letterSpacing = 2.sp),
                     modifier = Modifier.fillMaxWidth().padding(12.dp),
                 )
-                is SetupStep.Complete -> Unit
+                else -> Unit
             }
             if (current is SetupStep.Input) current.hint?.let { BasicText(it, style = Type.preview, modifier = Modifier.padding(horizontal = 9.dp)) }
             if (busy && current !is SetupStep.Qr && current !is SetupStep.PairCode) CenteredMessage("Working…")
             error?.let { CenteredMessage(it, color = Palette.error) }
         }
     }
+}
+
+/**
+ * When the main app is on this same phone (with its notifications off), the
+ * QR can't be scanned. If an installed app handles the QR's link — Telegram
+ * for tg://login — open it directly. Signal and Molly deliberately refuse to
+ * link from an opened sgnl:// link, so those need scanning from a screen.
+ */
+@Composable
+private fun OpenInApp(payload: String, requester: FocusRequester) {
+    val context = LocalContext.current
+    val intent = remember(payload) { Intent(Intent.ACTION_VIEW, Uri.parse(payload)) }
+    val handler = remember(payload) {
+        if (!payload.contains("://") || payload.startsWith("sgnl:")) null
+        else intent.resolveActivity(context.packageManager)?.let { component ->
+            runCatching {
+                context.packageManager.getApplicationLabel(context.packageManager.getApplicationInfo(component.packageName, 0)).toString()
+            }.getOrNull()
+        }
+    } ?: return
+    ListButton(
+        "Link with $handler on this phone",
+        { runCatching { context.startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) } },
+        description = "Or scan the code below from another phone.",
+        focusRequester = requester,
+    )
 }
 
 /** QR codes need a quiet white border to scan reliably from another phone. */

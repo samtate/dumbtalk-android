@@ -25,7 +25,7 @@ import org.robolectric.annotation.GraphicsMode
 @OptIn(ExperimentalTestApi::class)
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
-@Config(sdk = [34], qualifiers = "w427dp-h640dp-hdpi")
+@Config(sdk = [34], qualifiers = "w427dp-h640dp-hdpi", application = TestApp::class)
 class KeypadFlowTest {
     @get:Rule
     val compose = createAndroidComposeRule<MainActivity>()

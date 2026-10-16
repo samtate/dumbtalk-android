@@ -15,4 +15,4 @@ dependencyResolutionManagement {
 }
 
 rootProject.name = "dumbtalk-android"
-include(":app", ":core", ":svc-telegram", ":svc-whatsapp")
+include(":app", ":core", ":svc-signal", ":svc-telegram", ":svc-whatsapp")

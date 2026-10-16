@@ -191,14 +191,18 @@ private fun previewText(conversation: Conversation) = buildAnnotatedString {
         return@buildAnnotatedString
     }
     val message = conversation.lastMessage
+    if (message == null) {
+        append(messageSummary(null))
+        return@buildAnnotatedString
+    }
     val sender = when {
-        message?.direction == Direction.OUTGOING -> "You"
-        conversation.kind == ConversationKind.GROUP -> firstName(message?.sender) ?: "Someone"
+        message.direction == Direction.OUTGOING -> "You"
+        conversation.kind == ConversationKind.GROUP -> firstName(message.sender) ?: "Someone"
         else -> conversation.title
     }
     withStyle(SpanStyle(fontWeight = FontWeight.Bold, color = Palette.time)) { append("$sender: ") }
     append(messageSummary(message))
-    val receipt = message?.receipt?.takeIf { message.direction == Direction.OUTGOING }
+    val receipt = message.receipt?.takeIf { message.direction == Direction.OUTGOING }
     if (receipt != null) {
         val colour = if (receipt.state == Receipt.State.READ) Palette.focus else Palette.muted
         withStyle(SpanStyle(color = colour)) { append(if (receipt.state == Receipt.State.SENT) "  ✓" else "  ✓✓") }

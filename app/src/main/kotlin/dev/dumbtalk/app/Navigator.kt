@@ -36,4 +36,8 @@ class Navigator {
     }
 
     fun openChat(conversation: Conversation) = push(Screen.Chat(conversation.id, conversation))
+
+    fun popToRoot() {
+        while (stack.size > 1) stack.removeAt(stack.lastIndex)
+    }
 }

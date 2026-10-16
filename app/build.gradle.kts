@@ -54,11 +54,9 @@ android {
     buildTypes {
         debug {
             applicationIdSuffix = ".debug"
-            buildConfigField("boolean", "DEMO_SERVICES", "true")
         }
         release {
             isMinifyEnabled = false
-            buildConfigField("boolean", "DEMO_SERVICES", "false")
             if (System.getenv("DUMBTALK_KEYSTORE") != null) signingConfig = signingConfigs.getByName("release")
         }
     }
@@ -82,6 +80,7 @@ kotlin { jvmToolchain(17) }
 
 dependencies {
     implementation(project(":core"))
+    implementation(project(":svc-signal"))
     implementation(project(":svc-telegram"))
     implementation(project(":svc-whatsapp"))
     implementation(libs.androidx.core.ktx)
