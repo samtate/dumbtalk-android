@@ -119,6 +119,8 @@ data class Capabilities(
     val muting: Boolean = false,
     val calls: Boolean = false,
     val disappearingDurations: List<Int> = emptyList(),
+    /** What recorded voice notes should be: "audio/ogg" (Opus) or "audio/aac". */
+    val voiceNoteMime: String = "audio/ogg",
 )
 
 data class ServiceSettings(
@@ -293,6 +295,9 @@ interface MessagingService {
     suspend fun createGroup(name: String, members: List<String>): Unit = unsupported("groups")
     suspend fun settings(): ServiceSettings = ServiceSettings()
     suspend fun updateSettings(settings: ServiceSettings): ServiceSettings = unsupported("settings")
+    /** Downloads (once) and returns the local path of a received attachment. */
+    suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String =
+        unsupported("attachments")
     suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String? = null): Unit =
         unsupported("attachments")
     suspend fun forwardMessage(message: Message, target: Conversation): Unit = unsupported("forwarding")
@@ -302,7 +307,8 @@ interface MessagingService {
     suspend fun deleteMessage(conversation: Conversation, message: Message): Unit = unsupported("deletes")
     suspend fun pinMessage(conversation: Conversation, message: Message, pinned: Boolean): Unit = unsupported("pins")
     suspend fun listPinnedMessages(conversation: Conversation): List<Message> = emptyList()
-    suspend fun sendVoiceNote(conversation: Conversation, path: String): Unit = unsupported("voice notes")
+    suspend fun sendVoiceNote(conversation: Conversation, path: String, mimeType: String, durationMillis: Long): Unit =
+        unsupported("voice notes")
     suspend fun createPoll(conversation: Conversation, question: String, options: List<String>, multiple: Boolean): Unit =
         unsupported("polls")
     suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>): Unit = unsupported("polls")

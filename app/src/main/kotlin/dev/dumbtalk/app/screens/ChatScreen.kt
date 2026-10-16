@@ -1,5 +1,18 @@
 package dev.dumbtalk.app.screens
 
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.Dispatchers
+import dev.dumbtalk.core.AttachmentKind
+import dev.dumbtalk.app.ui.AppIcon
+import dev.dumbtalk.app.media.VoiceRecorder
+import dev.dumbtalk.app.media.MediaFiles
+import dev.dumbtalk.app.media.AudioPlayer
+import androidx.compose.ui.platform.LocalContext
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.activity.compose.rememberLauncherForActivityResult
+import android.widget.Toast
+import android.content.pm.PackageManager
+import android.Manifest
 import dev.dumbtalk.app.ui.Square
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -79,6 +92,46 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     var loaded by remember { mutableStateOf(false) }
 
     fun focusInput() = scope.launch { withFrameNanos { }; runCatching { inputFocus.requestFocus() } }
+
+    // Media: a full-screen photo, a voice note being recorded, and pickers.
+    val context = LocalContext.current
+    var viewerPath by remember { mutableStateOf<String?>(null) }
+    var recorder by remember { mutableStateOf<VoiceRecorder?>(null) }
+    fun failed(what: String, error: Throwable) = Toast.makeText(context, "$what: ${error.message ?: "failed"}", Toast.LENGTH_SHORT).show()
+    val pickFile = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        if (uri != null) scope.launch {
+            runCatching { withContext(Dispatchers.IO) { MediaFiles.copyIn(context, uri) } }
+                .onSuccess { model.sendFile(it.path, it.mime) }
+                .onFailure { failed("Couldn't attach", it) }
+        }
+    }
+    fun startRecording() {
+        val next = VoiceRecorder(context, capabilities.voiceNoteMime)
+        runCatching { next.start() }.onSuccess { recorder = next }.onFailure { failed("Couldn't record", it) }
+    }
+    val askMicrophone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) startRecording()
+    }
+    fun withAttachment(message: Message, use: (String) -> Unit) = scope.launch {
+        runCatching { model.attachmentPath(message) }.onSuccess(use).onFailure { failed("Couldn't download", it) }
+    }
+    fun mediaAction(message: Message): MenuItem? = when (message.attachments.firstOrNull()?.kind) {
+        AttachmentKind.IMAGE -> MenuItem("View", AppIcon.SEARCH) { withAttachment(message) { viewerPath = it } }
+        AttachmentKind.AUDIO -> if (AudioPlayer.playing == message.id) {
+            MenuItem("Stop", AppIcon.MIC) { AudioPlayer.stop() }
+        } else {
+            MenuItem("Play", AppIcon.MIC) { withAttachment(message) { AudioPlayer.play(message.id, it) } }
+        }
+        AttachmentKind.VIDEO, AttachmentKind.FILE -> MenuItem("Open", AppIcon.ATTACH) {
+            withAttachment(message) { path ->
+                if (!MediaFiles.open(context, path, message.attachments.first().contentType)) {
+                    Toast.makeText(context, "No app here can open this file", Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+        null -> null
+    }
+    DisposableEffect(Unit) { onDispose { AudioPlayer.stop() } }
     fun send() = model.send { listState.animateScrollToItem(model.lastIndex) }
 
     DisposableEffect(screen.conversationId) {
@@ -110,7 +163,21 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     }
 
     val actionMessage = model.messages?.firstOrNull { it.id == actionMessageId }
+    val activeRecorder = recorder
     when {
+        viewerPath != null -> ImageViewer(viewerPath!!) { viewerPath = null }
+
+        activeRecorder != null -> RecordingPanel(
+            activeRecorder,
+            onSend = {
+                recorder = null
+                activeRecorder.stop(keep = true)?.let { (file, duration) ->
+                    model.sendVoiceNote(file.absolutePath, capabilities.voiceNoteMime, duration)
+                }
+            },
+            onCancel = { recorder = null; activeRecorder.stop(keep = false) },
+        )
+
         actionMessage != null -> MessageActions(
             conversation, actionMessage, capabilities,
             onClose = { actionMessageId = null },
@@ -119,6 +186,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             onEdit = { model.startEdit(actionMessage); actionMessageId = null; focusInput() },
             onDelete = { model.delete(actionMessage); actionMessageId = null },
             onPin = { model.togglePin(actionMessage); actionMessageId = null },
+            media = mediaAction(actionMessage)?.let { item -> MenuItem(item.label, item.icon) { actionMessageId = null; item.onClick() } },
         )
 
         showOptions -> ChatOptions(
@@ -128,6 +196,14 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                 model.update(update)
                 showOptions = false
                 if (update.archived == true) navigator.pop()
+            },
+            send = buildList {
+                if (capabilities.attachments) add(MenuItem("Send file", AppIcon.ATTACH) { showOptions = false; pickFile.launch("*/*") })
+                if (capabilities.voiceNotes) add(MenuItem("Voice note", AppIcon.MIC) {
+                    showOptions = false
+                    if (context.checkSelfPermission(Manifest.permission.RECORD_AUDIO) == PackageManager.PERMISSION_GRANTED) startRecording()
+                    else askMicrophone.launch(Manifest.permission.RECORD_AUDIO)
+                })
             },
         )
 
@@ -163,6 +239,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                             onSelect = { selectedId = it.id },
                             onOpen = { actionMessageId = it.id },
                             onLoadOlder = { scope.launch { model.load(older = true) } },
+                            loadAttachment = model::attachmentPath,
                         )
                     }
                 }

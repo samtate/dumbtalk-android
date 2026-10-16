@@ -1,5 +1,6 @@
 package dev.dumbtalk.telegram
 
+import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
@@ -256,6 +257,8 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         search = true,
         compose = true,
         muting = true,
+        attachments = true,
+        voiceNotes = true,
     )
 
     override suspend fun beginSetup(): SetupStep {
@@ -492,6 +495,40 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             }
             client.send(TdApi.SetChatNotificationSettings(chat.id, settings))
         }
+    }
+
+    override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String {
+        val file = requireClient().send(TdApi.DownloadFile(attachment.id.toInt(), 32, 0, 0, true))
+        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
+            ?: throw TelegramException(0, "Download didn't finish")
+    }
+
+    override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) {
+        val file = TdApi.InputFileLocal(path)
+        val text = TdApi.FormattedText(caption.orEmpty(), emptyArray())
+        val content: TdApi.InputMessageContent = when {
+            mimeType.startsWith("image/") -> TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = file }; this.caption = text }
+            mimeType.startsWith("video/") -> TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = file }; this.caption = text }
+            else -> TdApi.InputMessageDocument().apply { document = TdApi.InputDocument().apply { document = file }; this.caption = text }
+        }
+        send(conversation, content)
+    }
+
+    override suspend fun sendVoiceNote(conversation: Conversation, path: String, mimeType: String, durationMillis: Long) {
+        val content = TdApi.InputMessageVoiceNote().apply {
+            voiceNote = TdApi.InputVoiceNote().apply {
+                voiceNote = TdApi.InputFileLocal(path)
+                duration = (durationMillis / 1000).toInt()
+            }
+        }
+        send(conversation, content)
+    }
+
+    private suspend fun send(conversation: Conversation, content: TdApi.InputMessageContent) {
+        requireClient().send(TdApi.SendMessage().apply {
+            chatId = chatId(conversation)
+            inputMessageContent = content
+        })
     }
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> {

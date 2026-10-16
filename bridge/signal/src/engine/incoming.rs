@@ -161,6 +161,9 @@ impl Engine {
                 ..Default::default()
             };
             self.db.put_message(&row).await.map_err(fail)?;
+            if let Some(pointer) = attachment {
+                self.db.set_attachment(chat, &row.id, &pointer.encode_to_vec()).await.map_err(fail)?;
+            }
             if live && !from_me {
                 self.db.bump_unread(chat).await.map_err(fail)?;
                 self.emit("incoming", json!({ "chat": chat, "id": row.id }));

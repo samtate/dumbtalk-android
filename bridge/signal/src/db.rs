@@ -152,6 +152,8 @@ impl Db {
             .journal_mode(SqliteJournalMode::Wal);
         let pool = SqlitePoolOptions::new().max_connections(1).connect_with(options).await?;
         sqlx::raw_sql(SCHEMA).execute(&pool).await?;
+        // Added after the first release: the attachment pointer, for downloads.
+        let _ = sqlx::raw_sql("ALTER TABLE messages ADD COLUMN attachment BLOB").execute(&pool).await;
         Ok(Db { pool })
     }
 
@@ -232,6 +234,25 @@ impl Db {
         .execute(&self.pool)
         .await?;
         self.ensure_chat(&m.chat, m.ts).await
+    }
+
+    pub async fn set_attachment(&self, chat: &str, id: &str, pointer: &[u8]) -> Result<()> {
+        sqlx::query("UPDATE messages SET attachment = ? WHERE chat = ? AND id = ?")
+            .bind(pointer)
+            .bind(chat)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    pub async fn attachment(&self, chat: &str, id: &str) -> Result<Option<Vec<u8>>> {
+        Ok(sqlx::query("SELECT attachment FROM messages WHERE chat = ? AND id = ?")
+            .bind(chat)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?
+            .and_then(|row| row.get::<Option<Vec<u8>>, _>("attachment")))
     }
 
     pub async fn edit_message(&self, chat: &str, id: &str, text: &str) -> Result<()> {

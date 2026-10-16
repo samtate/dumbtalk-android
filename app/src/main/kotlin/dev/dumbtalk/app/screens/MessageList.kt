@@ -1,5 +1,7 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.core.AttachmentKind
+import dev.dumbtalk.app.media.AudioPlayer
 import androidx.compose.ui.text.buildAnnotatedString
 import dev.dumbtalk.app.ui.receiptMark
 import dev.dumbtalk.app.ui.assignTints
@@ -63,6 +65,7 @@ internal fun MessageList(
     onSelect: (Message) -> Unit,
     onOpen: (Message) -> Unit,
     onLoadOlder: () -> Unit,
+    loadAttachment: suspend (Message) -> String,
 ) {
     val zone = ZoneId.systemDefault()
     val time = remember { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT) }
@@ -107,6 +110,7 @@ internal fun MessageList(
                     message,
                     tint,
                     tintOf,
+                    loadAttachment,
                     time.format(Instant.ofEpochMilli(message.sentAt).atZone(zone)),
                     maxBubble,
                     focusRequester = if (message.id == selectedId) selectedFocus else null,
@@ -136,6 +140,7 @@ private fun Bubble(
     message: Message,
     tint: Color,
     tintOf: (String) -> Color,
+    loadAttachment: suspend (Message) -> String,
     time: String,
     maxWidth: androidx.compose.ui.unit.Dp,
     focusRequester: FocusRequester?,
@@ -171,14 +176,24 @@ private fun Bubble(
                     BasicText((quote.text ?: "Message").forDisplay(), style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
+            if (!message.deleted) InlineImage(message, maxWidth - 14.dp, loadAttachment)
             val italic = message.deleted
-            BasicText(
-                if (message.deleted) "This message was deleted" else messageSummary(message).forDisplay(),
-                style = Type.body.copy(
-                    color = if (italic) Palette.muted else Palette.text,
-                    fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
-                ),
-            )
+            val label = when {
+                message.deleted -> "This message was deleted"
+                AudioPlayer.playing == message.id -> "■ Playing…"
+                message.attachments.firstOrNull()?.kind == AttachmentKind.AUDIO && message.text == null -> "▶ ${messageSummary(message)}"
+                message.image() != null && message.text == null -> null // the photo speaks for itself
+                else -> messageSummary(message).forDisplay()
+            }
+            if (label != null) {
+                BasicText(
+                    label,
+                    style = Type.body.copy(
+                        color = if (italic) Palette.muted else Palette.text,
+                        fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
+                    ),
+                )
+            }
             if (message.reactions.isNotEmpty()) {
                 BasicText(
                     message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji }.forDisplay(),

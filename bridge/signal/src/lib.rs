@@ -71,6 +71,8 @@ pub(crate) enum Command {
     SetTyping { chat: String, active: bool, reply: Reply },
     SetFlag { chat: String, flag: &'static str, value: bool, reply: Reply },
     ResolvePhone { phone: String, reply: Reply },
+    DownloadMedia { chat: String, id: String, reply: Reply },
+    SendMedia { chat: String, path: String, mime: String, caption: String, voice_note: bool, reply: Reply },
 }
 
 #[derive(uniffi::Object)]
@@ -179,6 +181,16 @@ impl SignalClient {
 
     pub fn set_muted(&self, chat: String, value: bool) -> Result<(), BridgeError> {
         self.unit(|reply| Command::SetFlag { chat, flag: "muted", value, reply })
+    }
+
+    /// Downloads (once) a received attachment; returns its local path.
+    pub fn download_media(&self, chat: String, id: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::DownloadMedia { chat, id, reply })
+    }
+
+    /// Sends a file (photo, video, audio or document by MIME type); returns the message JSON.
+    pub fn send_media(&self, chat: String, path: String, mime: String, caption: String, voice_note: bool) -> Result<String, BridgeError> {
+        self.call(|reply| Command::SendMedia { chat, path, mime, caption, voice_note, reply })
     }
 
     /// Finds the Signal account for a phone number; returns its chat id.

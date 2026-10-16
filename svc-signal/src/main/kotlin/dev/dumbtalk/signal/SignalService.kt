@@ -39,6 +39,9 @@ class SignalService(context: Context, dataDir: File, deviceName: String, scope: 
         Log.w("Signal", message)
     }
 
+    /** Signal's own apps send voice notes as AAC. */
+    override suspend fun capabilities() = super.capabilities().copy(voiceNoteMime = "audio/aac")
+
     override suspend fun beginSetup(): SetupStep {
         if (bridge { isLinked() }) return complete()
         return startLink()
@@ -98,4 +101,7 @@ private class RustBridge(private val client: SignalClient) : NativeBridge {
     override fun setPinned(chat: String, value: Boolean) = client.setPinned(chat, value)
     override fun setMuted(chat: String, value: Boolean) = client.setMuted(chat, value)
     override fun resolvePhone(phone: String): String = client.resolvePhone(phone)
+    override fun downloadMedia(chat: String, id: String): String = client.downloadMedia(chat, id)
+    override fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String =
+        client.sendMedia(chat, path, mime, caption, voiceNote)
 }

@@ -264,6 +264,13 @@ func (s *msgStore) message(chat, id string) (*row, error) {
 	return &list[0], nil
 }
 
+// raw returns the stored protobuf of a media message, for downloading.
+func (s *msgStore) raw(chat, id string) ([]byte, error) {
+	var raw []byte
+	err := s.db.QueryRow(`SELECT raw FROM messages WHERE chat = ? AND id = ?`, chat, id).Scan(&raw)
+	return raw, err
+}
+
 func (s *msgStore) unreadIncoming(chat string, limit int) ([]row, error) {
 	rows, err := s.db.Query(`SELECT `+messageColumns+` FROM messages WHERE chat = ? AND from_me = 0 AND kind != 'system'
 		ORDER BY ts DESC LIMIT ?`, chat, limit)

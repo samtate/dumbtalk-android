@@ -1,5 +1,6 @@
 package dev.dumbtalk.core.bridge
 
+import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationPage
@@ -54,6 +55,11 @@ interface NativeBridge {
     fun setMuted(chat: String, value: Boolean)
     /** Chat id for a phone number on this network. */
     fun resolvePhone(phone: String): String
+
+    /** Downloads (once) a message's attachment; returns its local path. */
+    fun downloadMedia(chat: String, id: String): String
+    /** Sends a file (photo, video, audio or document by MIME type); returns the message JSON. */
+    fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String
 }
 
 /** A failure reported by a native bridge, with a message fit to show. */
@@ -178,6 +184,8 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         search = true,
         compose = true,
         muting = true,
+        attachments = true,
+        voiceNotes = true,
     )
 
     override suspend fun disconnect() = bridge { logout() }
@@ -234,6 +242,19 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> =
         json.searchResults(bridge { searchJson(query) }, conversation)
+
+    override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String =
+        bridge { downloadMedia(conversation.remoteId, message.id) }
+
+    override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) {
+        bridge { sendMedia(conversation.remoteId, path, mimeType, caption.orEmpty(), false) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
+
+    override suspend fun sendVoiceNote(conversation: Conversation, path: String, mimeType: String, durationMillis: Long) {
+        bridge { sendMedia(conversation.remoteId, path, mimeType, "", true) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
 
     override suspend fun createDirect(address: String, title: String?): Conversation {
         val chat = bridge { resolvePhone(address) }

@@ -118,6 +118,30 @@ class ChatModel(
         }
     }
 
+    private val downloaded = mutableMapOf<String, String>()
+
+    /** Local path of a message's attachment, downloading it the first time. */
+    suspend fun attachmentPath(message: Message): String =
+        downloaded[message.id] ?: service.downloadAttachment(conversation(), message, message.attachments.first())
+            .also { downloaded[message.id] = it }
+
+    fun sendFile(path: String, mime: String) = sendMedia { service.sendAttachment(conversation(), path, mime) }
+
+    fun sendVoiceNote(path: String, mime: String, durationMillis: Long) =
+        sendMedia { service.sendVoiceNote(conversation(), path, mime, durationMillis) }
+
+    private fun sendMedia(block: suspend () -> Unit) {
+        scope.launch {
+            runCatching { block() }
+                .onSuccess { sendError = null }
+                .onFailure { failure ->
+                    Log.w("Chat", "media send failed", failure)
+                    sendError = "Not sent: ${failure.message ?: "unknown error"}"
+                }
+            load()
+        }
+    }
+
     fun toggleReaction(message: Message, emoji: String) {
         val own = message.reactions.any { it.isOwn && it.emoji == emoji }
         launch { service.react(conversation(), message, emoji, remove = own) }

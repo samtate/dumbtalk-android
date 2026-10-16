@@ -1,6 +1,7 @@
 //! The engine thread: presage's manager, the receive loop and command handling.
 
 mod incoming;
+mod media;
 mod outgoing;
 mod queries;
 
@@ -9,7 +10,7 @@ use crate::{BridgeError, Command, Listener, Reply};
 use futures::{channel::oneshot as fo, pin_mut, StreamExt};
 use presage::libsignal_service::configuration::SignalServers;
 use presage::libsignal_service::content::{Content, ContentBody, DataMessage, GroupContextV2};
-use presage::libsignal_service::prelude::Uuid;
+use presage::libsignal_service::prelude::{ProtobufMessage, Uuid};
 use presage::libsignal_service::protocol::ServiceId;
 use presage::manager::Registered;
 use presage::model::identity::OnNewIdentity;
@@ -177,6 +178,10 @@ impl Engine {
                 send(reply, result.and_then(|_| ok()))
             }
             Command::ResolvePhone { phone, reply } => send(reply, self.resolve_phone(&phone).await),
+            Command::DownloadMedia { chat, id, reply } => send(reply, self.download_media(&chat, &id).await),
+            Command::SendMedia { chat, path, mime, caption, voice_note, reply } => {
+                send(reply, self.send_media(&chat, &path, &mime, &caption, voice_note).await)
+            }
         }
     }
 

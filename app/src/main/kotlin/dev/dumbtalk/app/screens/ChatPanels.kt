@@ -58,6 +58,8 @@ internal fun MessageActions(
     onEdit: () -> Unit,
     onDelete: () -> Unit,
     onPin: () -> Unit,
+    /** View, Play/Stop or Open, for messages with an attachment. */
+    media: MenuItem? = null,
 ) {
     val context = LocalContext.current
     val requester = remember { FocusRequester() }
@@ -94,6 +96,7 @@ internal fun MessageActions(
                 }
             }
             val actions = buildList {
+                if (media != null && !message.deleted) add(media)
                 if (!message.deleted) add(MenuItem("Reply", AppIcon.REPLY, onReply))
                 if (outgoing && capabilities.edits && !message.deleted && message.text != null) add(MenuItem("Edit", AppIcon.EDIT, onEdit))
                 if (capabilities.pins && !message.deleted) add(MenuItem(if (message.pinned) "Unpin" else "Pin", AppIcon.PIN, onPin))
@@ -127,7 +130,13 @@ internal fun MessageActions(
 }
 
 @Composable
-internal fun ChatOptions(conversation: Conversation, onClose: () -> Unit, onUpdate: (ConversationUpdate) -> Unit) {
+internal fun ChatOptions(
+    conversation: Conversation,
+    onClose: () -> Unit,
+    onUpdate: (ConversationUpdate) -> Unit,
+    /** Sending files and voice notes, when the service supports them. */
+    send: List<MenuItem> = emptyList(),
+) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
     Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Back", onClose))
@@ -135,7 +144,7 @@ internal fun ChatOptions(conversation: Conversation, onClose: () -> Unit, onUpda
         Header(conversation.title)
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
             MenuGrid(
-                listOf(
+                send + listOf(
                     MenuItem(if (conversation.isFavourite) "Unstar" else "Star", AppIcon.STAR) { onUpdate(ConversationUpdate(favourite = !conversation.isFavourite)) },
                     MenuItem(if (conversation.isMuted) "Unmute" else "Mute", AppIcon.MUTE) { onUpdate(ConversationUpdate(muted = !conversation.isMuted)) },
                     MenuItem(if (conversation.isArchived) "Unarchive" else "Archive", AppIcon.ARCHIVE) { onUpdate(ConversationUpdate(archived = !conversation.isArchived)) },
