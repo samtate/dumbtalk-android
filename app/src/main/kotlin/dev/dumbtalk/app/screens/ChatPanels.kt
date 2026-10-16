@@ -3,7 +3,6 @@ package dev.dumbtalk.app.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
-import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -15,7 +14,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -25,11 +23,11 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dumbtalk.app.ui.AppIcon
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyAction
@@ -69,9 +67,9 @@ internal fun MessageActions(
     Column(Modifier.fillMaxSize()) {
         Header("Message")
         Column(Modifier.verticalScroll(rememberScrollState()).padding(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            Column(Modifier.fillMaxWidth().background(Palette.panel, RoundedCornerShape(6.dp)).padding(7.dp)) {
-                BasicText(if (outgoing) "You" else message.sender ?: conversation.title, style = Type.body.copy(fontWeight = FontWeight.Bold))
-                BasicText(messageSummary(message), style = Type.small.copy(fontSize = 11.sp, color = Palette.time), maxLines = 3, overflow = TextOverflow.Ellipsis)
+            Column(Modifier.fillMaxWidth().border(1.dp, Palette.line, Square).padding(7.dp)) {
+                BasicText(if (outgoing) "You" else message.sender ?: conversation.title, style = Type.label)
+                BasicText(messageSummary(message), style = Type.small.copy(color = Palette.time), maxLines = 3, overflow = TextOverflow.Ellipsis)
             }
             if (canReact) {
                 BasicText("QUICK REACTION", style = Type.section)
@@ -84,7 +82,7 @@ internal fun MessageActions(
                                     .weight(1f)
                                     .height(36.dp)
                                     .focusCard(
-                                        { onReact(emoji) }, RoundedCornerShape(6.dp), Palette.tile,
+                                        { onReact(emoji) }, Square, Palette.tile,
                                         if (row == 0 && column == 0) requester else null,
                                         idleBorder = if (own) Palette.focus.copy(alpha = 0.5f) else Palette.tileBorder,
                                     ),
@@ -115,11 +113,11 @@ internal fun MessageActions(
                 Column(
                     Modifier
                         .fillMaxWidth()
-                        .border(1.dp, Palette.tileBorder, RoundedCornerShape(7.dp))
+                        .border(1.dp, Palette.tileBorder, Square)
                         .padding(7.dp),
                 ) {
-                    BasicText("Message details", style = Type.body.copy(fontWeight = FontWeight.Bold, fontSize = 11.sp))
-                    details.forEach { BasicText(it, style = Type.small.copy(fontSize = 11.sp)) }
+                    BasicText("MESSAGE DETAILS", style = Type.section)
+                    details.forEach { BasicText(it, style = Type.small) }
                 }
             }
             Spacer(Modifier.height(4.dp))

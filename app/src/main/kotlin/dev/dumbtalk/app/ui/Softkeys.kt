@@ -2,7 +2,7 @@ package dev.dumbtalk.app.ui
 
 import android.view.KeyEvent
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -114,12 +114,13 @@ fun Softkeys(left: SoftkeyAction? = null, center: SoftkeyAction? = null, right: 
 @Composable
 fun SoftkeyBar(controller: SoftkeyController, modifier: Modifier = Modifier) {
     val config = controller.current
+    // A single rule above the labels, no box.
+    Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.line))
     Row(
         modifier
             .fillMaxWidth()
-            .height(24.dp)
+            .height(26.dp)
             .background(Palette.softkeyBar)
-            .border(width = 1.dp, color = Palette.line)
             .padding(horizontal = 6.dp),
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {

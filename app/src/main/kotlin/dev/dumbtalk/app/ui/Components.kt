@@ -1,6 +1,5 @@
 package dev.dumbtalk.app.ui
 
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
@@ -18,7 +17,6 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -46,7 +44,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
@@ -57,12 +55,11 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.dumbtalk.app.R
 import dev.dumbtalk.core.ServiceId
 
 /**
- * The D-pad focus treatment used everywhere: a card that draws a blue border
- * while focused and activates on centre/Enter or a tap. With [claimsCenter]
+ * The D-pad focus treatment used everywhere: a card that draws a solid white
+ * frame while focused and activates on centre/Enter or a tap. With [claimsCenter]
  * false the centre key goes to the screen's centre softkey instead (chat
  * bubbles, where centre means Type); taps still activate.
  *
@@ -73,7 +70,7 @@ import dev.dumbtalk.core.ServiceId
 @Composable
 fun Modifier.focusCard(
     onClick: () -> Unit,
-    shape: Shape = RoundedCornerShape(8.dp),
+    shape: Shape = Square,
     background: Brush = Palette.row,
     focusRequester: FocusRequester? = null,
     onFocused: (() -> Unit)? = null,
@@ -103,15 +100,18 @@ fun Modifier.focusCard(
         .semantics { onClick { currentOnClick(); true } }
         .clip(shape)
         .background(background, shape)
-        .border(1.dp, if (focused) Palette.focus else idleBorder, shape)
+        .border(if (focused) 2.dp else 1.dp, if (focused) Palette.focus else idleBorder, shape)
 }
+
+/** Near-square corners, like a character display's cells. */
+val Square = RoundedCornerShape(2.dp)
 
 @Composable
 fun Header(title: String, modifier: Modifier = Modifier, trailing: @Composable (() -> Unit)? = null) {
     Row(
         modifier
             .fillMaxWidth()
-            .height(30.dp)
+            .height(34.dp)
             .background(Palette.header)
             .padding(horizontal = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -122,52 +122,58 @@ fun Header(title: String, modifier: Modifier = Modifier, trailing: @Composable (
     Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.line))
 }
 
+/** A small outlined label, e.g. a service name in a header. */
 @Composable
 fun Pill(text: String) {
     BasicText(
         text.uppercase(),
-        style = Type.small.copy(fontSize = 8.sp, fontWeight = FontWeight.Bold, color = Color(0xFFAFC7BC)),
+        style = Type.small,
         modifier = Modifier
-            .border(1.dp, Color(0xFF456357), RoundedCornerShape(9.dp))
-            .padding(horizontal = 5.dp, vertical = 1.dp),
+            .border(1.dp, Palette.line, Square)
+            .padding(horizontal = 4.dp, vertical = 1.dp),
     )
 }
 
-fun serviceIcon(id: ServiceId): Int = when (id) {
-    ServiceId.SIGNAL -> R.drawable.service_signal
-    ServiceId.TELEGRAM -> R.drawable.service_telegram
-    ServiceId.WHATSAPP -> R.drawable.service_whatsapp
-}
-
+/** A service as a one-letter tag (S, T, W) instead of a coloured logo. */
 @Composable
-fun ServiceIcon(id: ServiceId, size: Dp = 12.dp) {
-    Image(painterResource(serviceIcon(id)), contentDescription = id.label, modifier = Modifier.size(size).clip(CircleShape))
+fun ServiceIcon(id: ServiceId, size: Dp = 16.dp) {
+    Box(
+        Modifier.size(size).border(1.dp, Palette.muted, Square).semantics { contentDescription = id.label },
+        contentAlignment = Alignment.Center,
+    ) {
+        BasicText(id.label.take(1), style = Type.small.copy(color = Palette.text, fontSize = (size.value * 0.75f).sp, lineHeight = (size.value * 0.75f).sp))
+    }
 }
 
+/** Up to two initials from words that start with a letter or digit (emoji and symbols are skipped). */
 fun initials(value: String): String =
-    value.trim().split(Regex("\\s+")).take(2).mapNotNull { it.firstOrNull()?.uppercaseChar() }.joinToString("").ifEmpty { "?" }
+    value.split(Regex("\\s+"))
+        .mapNotNull { word -> word.firstOrNull()?.takeIf { it.isLetterOrDigit() }?.uppercaseChar() }
+        .take(2)
+        .joinToString("")
+        .ifEmpty { "?" }
 
 @Composable
 fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean = false) {
     Box(Modifier.size(size)) {
         Box(
-            Modifier.size(size).clip(CircleShape).background(Palette.avatar).border(1.dp, Color(0x24FFFFFF), CircleShape),
+            Modifier.size(size).border(1.dp, Palette.line, Square),
             contentAlignment = Alignment.Center,
         ) {
-            BasicText(if (noteToSelf) "🔖" else initials(title), style = Type.body.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold))
+            BasicText(if (noteToSelf) "*" else initials(title), style = Type.label.copy(fontWeight = FontWeight.Bold))
         }
+        // Unread count as an inverted block, like a lit display segment.
         if (unread > 0) {
             Box(
                 Modifier
                     .align(Alignment.BottomEnd)
-                    .offset(x = 3.dp, y = 3.dp)
-                    .heightIn(min = 15.dp)
-                    .clip(CircleShape)
-                    .background(Palette.unread)
-                    .padding(horizontal = 4.dp),
+                    .offset(x = 4.dp, y = 4.dp)
+                    .heightIn(min = 16.dp)
+                    .background(Palette.unread, Square)
+                    .padding(horizontal = 3.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                BasicText(if (unread > 99) "99+" else unread.toString(), style = Type.small.copy(fontWeight = FontWeight.Bold))
+                BasicText(if (unread > 99) "99+" else unread.toString(), style = Type.small.copy(color = Palette.background, fontWeight = FontWeight.Bold))
             }
         }
     }
@@ -179,16 +185,13 @@ fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifi
     Row(
         modifier
             .heightIn(min = 42.dp)
-            .focusCard(onClick, RoundedCornerShape(7.dp), Palette.tile, focusRequester, idleBorder = Palette.tileBorder)
+            .focusCard(onClick, Square, Palette.tile, focusRequester, idleBorder = Palette.tileBorder)
             .padding(horizontal = 7.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        Box(
-            Modifier.size(28.dp).clip(RoundedCornerShape(7.dp)).background(Palette.pill),
-            contentAlignment = Alignment.Center,
-        ) { Icon(icon, size = 16.dp) }
-        BasicText(label, style = Type.body.copy(fontSize = 12.sp, fontWeight = FontWeight.Bold), maxLines = 2)
+        Icon(icon, size = 18.dp)
+        BasicText(label, style = Type.label, maxLines = 2)
     }
 }
 
@@ -217,7 +220,7 @@ fun ListButton(
             Spacer(Modifier.width(8.dp))
         }
         androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
-            BasicText(title, style = Type.body.copy(fontWeight = FontWeight.Bold), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(title, style = Type.label, maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (description != null) BasicText(description, style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         trailing?.invoke()
@@ -252,7 +255,7 @@ fun TextInput(
         onValueChange = onValueChange,
         singleLine = singleLine,
         maxLines = if (singleLine) 1 else 4,
-        textStyle = Type.body.copy(fontSize = 14.sp),
+        textStyle = Type.body,
         cursorBrush = SolidColor(Palette.focus),
         interactionSource = interaction,
         visualTransformation = if (password) PasswordVisualTransformation() else VisualTransformation.None,
@@ -266,13 +269,12 @@ fun TextInput(
                     softkeys.typing = it.isFocused
                 }
             }
-            .clip(RoundedCornerShape(5.dp))
-            .background(Color(0xFF0F1E19))
-            .border(1.dp, if (focused) Palette.focus else Palette.line, RoundedCornerShape(5.dp))
+            .background(Palette.background, Square)
+            .border(if (focused) 2.dp else 1.dp, if (focused) Palette.focus else Palette.line, Square)
             .padding(horizontal = 7.dp, vertical = 6.dp),
         decorationBox = { inner ->
             Box {
-                if (value.isEmpty()) BasicText(placeholder, style = Type.body.copy(fontSize = 14.sp, color = Palette.muted))
+                if (value.isEmpty()) BasicText(placeholder, style = Type.body.copy(color = Palette.muted))
                 inner()
             }
         },

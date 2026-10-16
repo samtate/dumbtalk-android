@@ -15,7 +15,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -41,6 +40,7 @@ import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.R
 import dev.dumbtalk.app.Screen
 import dev.dumbtalk.app.ui.AppIcon
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Avatar
 import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Header
@@ -99,7 +99,7 @@ private fun NoServices(navigator: Navigator) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        Image(painterResource(R.drawable.dumbtalk_logo), null, Modifier.size(56.dp).clip(RoundedCornerShape(12.dp)))
+        Image(painterResource(R.drawable.dumbtalk_logo), null, Modifier.size(56.dp).clip(Square))
         CenteredMessage("Connect Signal, Telegram or WhatsApp to start.")
         ListButton("Connect a service", { navigator.push(Screen.Services) }, focusRequester = requester)
     }

@@ -1,11 +1,11 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -17,13 +17,13 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.Screen
 import dev.dumbtalk.app.ui.CenteredMessage
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
 import dev.dumbtalk.app.ui.Palette
@@ -110,9 +110,10 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
                 trailing = {
                     BasicText(
                         if (status.connected) "On" else "Off",
-                        style = Type.small.copy(fontWeight = FontWeight.Bold, color = if (status.connected) Color(0xFFCFEBDD) else Palette.muted),
+                        style = Type.small.copy(fontWeight = FontWeight.Bold, color = if (status.connected) Palette.background else Palette.muted),
                         modifier = Modifier
-                            .background(if (status.connected) Color(0xFF24533F) else Palette.panel, RoundedCornerShape(5.dp))
+                            .background(if (status.connected) Palette.text else Palette.background, Square)
+                            .border(1.dp, if (status.connected) Palette.text else Palette.line, Square)
                             .padding(horizontal = 5.dp, vertical = 2.dp),
                     )
                 },

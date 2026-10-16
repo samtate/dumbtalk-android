@@ -6,50 +6,72 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.Font
+import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
+import dev.dumbtalk.app.R
 
-// Colours from dumbtalk's _tokens.scss and component styles. Sizes are the
-// web UI's CSS pixels as dp, which is what the old WebView wrapper rendered.
+/**
+ * Retro, VFD-style: white on pure black, grey for secondary text, thin grey
+ * outlines instead of filled cards, and a solid white frame for D-pad focus.
+ * Colour is kept for meaning only (errors).
+ */
 object Palette {
-    val background = Color(0xFF0B1713)
-    val panel = Color(0xFF14251F)
-    val line = Color(0xFF315349)
-    val text = Color(0xFFF4F7F5)
-    val muted = Color(0xFF9DB1A8)
-    val focus = Color(0xFF6C9FFF)
-    val blue = Color(0xFF3A76F0)
-    val error = Color(0xFFFF9399)
-    val avatar = Color(0xFF31584B)
-    val unread = Color(0xFFD73D47)
-    val incoming = Color(0xFF233A32)
-    val outgoing = Color(0xFF2454A7)
-    val sender = Color(0xFF9FC4FF)
-    val time = Color(0xFFC0CEC8)
-    val tileBorder = Color(0xFF2C473E)
-    val pill = Color(0xFF23453A)
+    val background = Color(0xFF000000)
+    val panel = Color(0xFF111111)
+    val line = Color(0xFF3A3A3A)
+    val text = Color(0xFFFFFFFF)
+    val muted = Color(0xFF9E9E9E)
+    val focus = Color(0xFFFFFFFF)
+    val error = Color(0xFFFF6E6E)
+    val avatar = Color(0xFF000000)
+    val unread = Color(0xFFFFFFFF)
+    val incoming = Color(0xFF141414)
+    val outgoing = Color(0xFF2A2A2A)
+    val sender = Color(0xFFBDBDBD)
+    val time = Color(0xFF9E9E9E)
+    val tileBorder = Color(0xFF3A3A3A)
+    val pill = Color(0xFF1C1C1C)
+    val send = Color(0xFFFFFFFF)
 
-    val header = Brush.linearGradient(listOf(Color(0xFF15342A), Color(0xFF10201B)))
-    val row = Brush.linearGradient(listOf(Color(0xFF162B24), Color(0xFF12231E)))
-    val tile = Brush.linearGradient(listOf(Color(0xFF1A3029), Color(0xFF13251F)))
-    val softkeyBar = Brush.verticalGradient(listOf(Color(0xFF0B1512), Color(0xFF050A08)))
+    val header: Brush = SolidColor(background)
+    val row: Brush = SolidColor(background)
+    val tile: Brush = SolidColor(background)
+    val softkeyBar: Brush = SolidColor(background)
 }
 
+/** "Dot Matrix" by Svein Kåre Gunnarson (Dionaea Fonts, freeware). */
+val DotMatrix = FontFamily(
+    Font(R.font.dot_matrix, FontWeight.Normal),
+    Font(R.font.dot_matrix_bold, FontWeight.Bold),
+)
+
+/**
+ * The dot-matrix face covers plain Latin only and blurs below ~12sp, so it
+ * styles the UI (names, headers, labels, softkeys, times) while message text
+ * uses a plain face that handles emoji, accents and every script.
+ */
 object Type {
-    val body = TextStyle(color = Palette.text, fontSize = 13.sp, lineHeight = 15.sp)
-    val title = body.copy(fontSize = 14.sp, fontWeight = FontWeight.Bold)
-    val header = body.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
-    val preview = body.copy(color = Palette.muted, fontSize = 11.sp, lineHeight = 13.sp)
-    val small = body.copy(fontSize = 10.sp, lineHeight = 12.sp)
-    val softkey = body.copy(fontSize = 10.sp, fontWeight = FontWeight.Bold)
-    val section = body.copy(color = Palette.muted, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+    /** Message text and anything users write. */
+    val body = TextStyle(color = Palette.text, fontSize = 15.sp, lineHeight = 19.sp)
+    val preview = body.copy(color = Palette.muted, fontSize = 13.sp, lineHeight = 16.sp)
+
+    private val dot = TextStyle(color = Palette.text, fontFamily = DotMatrix, letterSpacing = 0.5.sp)
+    val title = dot.copy(fontSize = 17.sp, lineHeight = 20.sp)
+    val header = dot.copy(fontSize = 16.sp, lineHeight = 18.sp, fontWeight = FontWeight.Bold)
+    val label = dot.copy(fontSize = 15.sp, lineHeight = 18.sp)
+    val small = dot.copy(color = Palette.time, fontSize = 12.sp, lineHeight = 14.sp)
+    val softkey = dot.copy(fontSize = 13.sp, fontWeight = FontWeight.Bold)
+    val section = dot.copy(color = Palette.muted, fontSize = 12.sp, fontWeight = FontWeight.Bold)
 }
 
 @Composable
 fun DumbTalkTheme(content: @Composable () -> Unit) {
     CompositionLocalProvider(
-        LocalTextSelectionColors provides TextSelectionColors(Palette.focus, Palette.focus.copy(alpha = 0.4f)),
+        LocalTextSelectionColors provides TextSelectionColors(Palette.focus, Palette.focus.copy(alpha = 0.35f)),
         content = content,
     )
 }

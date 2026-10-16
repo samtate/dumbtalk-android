@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.Square
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -10,7 +11,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
@@ -31,7 +31,6 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.Navigator
@@ -184,10 +183,10 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     Box(
                         Modifier
                             .size(32.dp)
-                            .focusCard(::send, RoundedCornerShape(5.dp), SolidColor(Palette.blue))
+                            .focusCard(::send, Square, SolidColor(Palette.send))
                             .semantics { contentDescription = "Send" },
                         contentAlignment = Alignment.Center,
-                    ) { BasicText("➤", style = Type.body.copy(fontSize = 14.sp)) }
+                    ) { BasicText(">", style = Type.header.copy(color = Palette.background)) }
                 }
             }
         }

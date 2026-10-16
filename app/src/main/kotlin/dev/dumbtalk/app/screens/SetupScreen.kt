@@ -101,7 +101,7 @@ fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
             Modifier.verticalScroll(rememberScrollState()).padding(vertical = 6.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
         ) {
-            if (current != null) BasicText(current.instructions, style = Type.body.copy(fontSize = 12.sp), modifier = Modifier.padding(horizontal = 9.dp))
+            if (current != null) BasicText(current.instructions, style = Type.preview.copy(color = Palette.text), modifier = Modifier.padding(horizontal = 9.dp))
             when (current) {
                 null -> if (error == null) CenteredMessage("Starting…")
                 is SetupStep.Choice -> current.choices.forEachIndexed { index, choice ->

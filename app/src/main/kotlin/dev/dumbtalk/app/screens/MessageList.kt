@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,22 +14,20 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import dev.dumbtalk.app.ui.CenteredMessage
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
@@ -68,9 +67,9 @@ internal fun MessageList(
                 Box(Modifier.fillMaxWidth().padding(4.dp), contentAlignment = Alignment.Center) {
                     BasicText(
                         "Load older messages",
-                        style = Type.small.copy(fontSize = 11.sp),
+                        style = Type.small,
                         modifier = Modifier
-                            .focusCard(onLoadOlder, RoundedCornerShape(12.dp), SolidColor(Palette.panel), idleBorder = Palette.line)
+                            .focusCard(onLoadOlder, Square, SolidColor(Palette.background), idleBorder = Palette.line)
                             .padding(horizontal = 10.dp, vertical = 4.dp),
                     )
                 }
@@ -85,7 +84,7 @@ internal fun MessageList(
                 val showSender = conversation.kind == ConversationKind.GROUP &&
                     message.direction == Direction.INCOMING &&
                     (previous?.sender != message.sender || date != previousDate)
-                if (showSender) BasicText(message.sender.orEmpty(), style = Type.small.copy(fontSize = 11.sp, color = Palette.sender), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
+                if (showSender) BasicText(message.sender.orEmpty(), style = Type.small.copy(color = Palette.sender), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                 Bubble(
                     message,
                     time.format(Instant.ofEpochMilli(message.sentAt).atZone(zone)),
@@ -105,8 +104,8 @@ private fun DayDivider(label: String) {
         Box(Modifier.weight(1f).height(1.dp).background(Palette.line))
         BasicText(
             label,
-            style = Type.small.copy(color = Palette.muted, fontSize = 11.sp),
-            modifier = Modifier.padding(horizontal = 6.dp).background(Palette.panel, RoundedCornerShape(9.dp)).padding(horizontal = 7.dp, vertical = 1.dp),
+            style = Type.small.copy(color = Palette.muted),
+            modifier = Modifier.padding(horizontal = 6.dp).padding(horizontal = 7.dp, vertical = 1.dp),
         )
         Box(Modifier.weight(1f).height(1.dp).background(Palette.line))
     }
@@ -132,7 +131,7 @@ private fun Bubble(
                 .padding(vertical = 2.dp)
                 .widthIn(max = maxWidth)
                 .focusCard(
-                    onOpen, RoundedCornerShape(8.dp), SolidColor(if (outgoing) Palette.outgoing else Palette.incoming),
+                    onOpen, Square, SolidColor(if (outgoing) Palette.outgoing else Palette.incoming),
                     focusRequester, onFocus, claimsCenter = false,
                 )
                 .padding(horizontal = 7.dp, vertical = 5.dp),
@@ -142,11 +141,11 @@ private fun Bubble(
                 Column(
                     Modifier
                         .padding(bottom = 3.dp)
-                        .background(Color(0x33000000), RoundedCornerShape(4.dp))
+                        .border(1.dp, Palette.line, Square)
                         .padding(horizontal = 5.dp, vertical = 2.dp),
                 ) {
                     BasicText(quote.author, style = Type.small.copy(color = Palette.sender, fontWeight = FontWeight.Bold))
-                    BasicText(quote.text ?: "Message", style = Type.small, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    BasicText(quote.text ?: "Message", style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
             val italic = message.deleted
@@ -161,7 +160,7 @@ private fun Bubble(
                 BasicText(
                     message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji },
                     style = Type.body,
-                    modifier = Modifier.padding(top = 2.dp).background(Color(0x33000000), RoundedCornerShape(9.dp)).padding(horizontal = 5.dp, vertical = 1.dp),
+                    modifier = Modifier.padding(top = 2.dp).border(1.dp, Palette.line, Square).padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
             val meta = buildString {
