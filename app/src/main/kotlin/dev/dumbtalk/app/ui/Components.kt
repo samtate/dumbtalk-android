@@ -143,16 +143,6 @@ fun initials(value: String): String =
         .joinToString("")
         .ifEmpty { "?" }
 
-/**
- * Subtle tints so chats with the same initials look different; the same
- * name always gets the same tint. Stands in until real photos are shown.
- */
-private val avatarTints = listOf(
-    Color(0xFFE6C38F), Color(0xFF8FD3C9), Color(0xFFE7A0AC), Color(0xFFBDAAE8),
-    Color(0xFFB5D98C), Color(0xFF98C2EE), Color(0xFFEDAD80), Color(0xFFD2CBAE),
-)
-
-fun avatarTint(title: String): Color = avatarTints[Math.floorMod(title.hashCode(), avatarTints.size)]
 
 @Composable
 fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean = false) {

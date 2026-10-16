@@ -1,5 +1,8 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.ui.text.buildAnnotatedString
+import dev.dumbtalk.app.ui.receiptMark
+import dev.dumbtalk.app.ui.assignTints
 import dev.dumbtalk.app.ui.serviceColor
 import dev.dumbtalk.app.ui.avatarTint
 import androidx.compose.ui.graphics.lerp
@@ -41,7 +44,6 @@ import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Message
-import dev.dumbtalk.core.Receipt
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -66,6 +68,16 @@ internal fun MessageList(
     val time = remember { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT) }
     val day = remember { DateTimeFormatter.ofPattern("EEE, MMM d") }
     val maxBubble = (LocalConfiguration.current.screenWidthDp * 0.88f).dp
+    // One distinct colour per person in this chat; yours is the service's.
+    val ownTint = serviceColor(conversation.serviceId)
+    fun personOf(message: Message) =
+        if (conversation.kind == ConversationKind.GROUP) message.sender ?: conversation.title else conversation.title
+    val tints = remember(messages, conversation) {
+        val people = messages.filter { it.direction == Direction.INCOMING }.map(::personOf) +
+            messages.mapNotNull { it.quote?.author }.filter { it != "You" }
+        assignTints(people, avoid = ownTint)
+    }
+    val tintOf = { name: String -> if (name == "You") ownTint else tints[name] ?: avatarTint(name) }
     LazyColumn(state = listState, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp), modifier = Modifier.fillMaxSize()) {
         if (hasMore) {
             item(key = "older") {
@@ -89,17 +101,12 @@ internal fun MessageList(
                 val showSender = conversation.kind == ConversationKind.GROUP &&
                     message.direction == Direction.INCOMING &&
                     (previous?.sender != message.sender || date != previousDate)
-                // Each person keeps one colour: their avatar tint. Your own
-                // messages take the service's colour.
-                val tint = when {
-                    message.direction == Direction.OUTGOING -> serviceColor(conversation.serviceId)
-                    conversation.kind == ConversationKind.GROUP -> avatarTint(message.sender ?: conversation.title)
-                    else -> avatarTint(conversation.title)
-                }
+                val tint = if (message.direction == Direction.OUTGOING) ownTint else tintOf(personOf(message))
                 if (showSender) BasicText(message.sender.orEmpty().forDisplay(), style = Type.small.copy(color = tint), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                 Bubble(
                     message,
                     tint,
+                    tintOf,
                     time.format(Instant.ofEpochMilli(message.sentAt).atZone(zone)),
                     maxBubble,
                     focusRequester = if (message.id == selectedId) selectedFocus else null,
@@ -128,6 +135,7 @@ private fun DayDivider(label: String) {
 private fun Bubble(
     message: Message,
     tint: Color,
+    tintOf: (String) -> Color,
     time: String,
     maxWidth: androidx.compose.ui.unit.Dp,
     focusRequester: FocusRequester?,
@@ -152,7 +160,7 @@ private fun Bubble(
         ) {
             message.forwardedFrom?.let { BasicText("Forwarded from $it", style = Type.small.copy(color = Palette.muted)) }
             message.quote?.let { quote ->
-                val quoteTint = avatarTint(quote.author)
+                val quoteTint = tintOf(quote.author)
                 Column(
                     Modifier
                         .padding(bottom = 3.dp)
@@ -178,20 +186,17 @@ private fun Bubble(
                     modifier = Modifier.padding(top = 2.dp).border(1.dp, tint.copy(alpha = 0.45f), Square).padding(horizontal = 5.dp, vertical = 1.dp),
                 )
             }
-            val meta = buildString {
+            val meta = buildAnnotatedString {
                 if (message.pinned) append("📌".forDisplay() + " ")
                 if (message.edited && !message.deleted) append("edited · ")
                 append(time)
-                if (outgoing) append(receiptMark(message.receipt))
+                if (outgoing) {
+                    append(" ")
+                    append(receiptMark(message.receipt))
+                }
             }
             BasicText(meta, style = Type.small.copy(color = Palette.time, textAlign = TextAlign.End), modifier = Modifier.align(Alignment.End))
         }
     }
 }
 
-private fun receiptMark(receipt: Receipt?) = when (receipt?.state) {
-    null -> " ⏱"
-    Receipt.State.SENT -> " ✓"
-    Receipt.State.DELIVERED -> " ✓✓"
-    Receipt.State.READ -> " ✓✓ read"
-}

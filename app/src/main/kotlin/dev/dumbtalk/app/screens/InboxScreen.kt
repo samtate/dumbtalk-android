@@ -1,5 +1,7 @@
 package dev.dumbtalk.app.screens
 
+import dev.dumbtalk.app.ui.receiptMark
+import dev.dumbtalk.app.ui.Fonts
 import dev.dumbtalk.app.ui.forDisplay
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
@@ -59,7 +61,6 @@ import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Direction
-import dev.dumbtalk.core.Receipt
 
 @Composable
 fun InboxScreen(app: DumbTalkApp, navigator: Navigator, archived: Boolean) {
@@ -161,7 +162,13 @@ fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () 
                     ServiceIcon(conversation.serviceId, 18.dp)
                 }
             }
-            BasicText(previewText(conversation), style = Type.preview, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                BasicText(previewText(conversation), style = Type.preview, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
+                // Ticks line up in one column under the service icons.
+                conversation.lastMessage?.takeIf { it.direction == Direction.OUTGOING && conversation.typingNames.isEmpty() }?.let {
+                    BasicText(receiptMark(it.receipt), style = Type.preview, modifier = Modifier.padding(start = 6.dp))
+                }
+            }
         }
     }
 }
@@ -185,12 +192,6 @@ private fun previewText(conversation: Conversation) = buildAnnotatedString {
         conversation.kind == ConversationKind.GROUP -> firstName(message.sender) ?: "Someone"
         else -> conversation.title.forDisplay()
     }
-    // Regular weight: bold dot matrix smears at preview size.
-    withStyle(SpanStyle(color = Palette.sender)) { append("$sender: ") }
+    withStyle(SpanStyle(fontFamily = Fonts.dotBold, color = Palette.sender)) { append("$sender: ") }
     append(messageSummary(message).forDisplay())
-    val receipt = message.receipt?.takeIf { message.direction == Direction.OUTGOING }
-    if (receipt != null) {
-        val colour = if (receipt.state == Receipt.State.READ) Palette.focus else Palette.muted
-        withStyle(SpanStyle(color = colour)) { append(if (receipt.state == Receipt.State.SENT) "  ✓" else "  ✓✓") }
-    }
 }
