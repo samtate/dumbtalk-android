@@ -124,16 +124,17 @@ impl Engine {
         } else if let Some(Delete { target_sent_timestamp: Some(target) }) = &message.delete {
             self.db.delete_message(chat, &message_id(*target, author)).await.map_err(fail)?;
         } else {
-            let attachment = message.attachments.first();
-            let kind = if let Some(attachment) = attachment {
+            let sticker = message.sticker.as_ref().and_then(|s| s.data.as_ref());
+            let attachment = message.attachments.first().or(sticker);
+            let kind = if message.sticker.is_some() {
+                "sticker"
+            } else if let Some(attachment) = attachment {
                 match attachment.content_type.as_deref().unwrap_or_default() {
                     t if t.starts_with("image/") => "image",
                     t if t.starts_with("video/") => "video",
                     t if t.starts_with("audio/") => "audio",
                     _ => "document",
                 }
-            } else if message.sticker.is_some() {
-                "sticker"
             } else if message.body.as_deref().is_some_and(|b| !b.is_empty()) {
                 "text"
             } else {

@@ -47,6 +47,8 @@ fun Message.image() = attachments.firstOrNull { it.kind == AttachmentKind.IMAGE 
 @Composable
 fun InlineImage(message: Message, maxWidth: Dp, load: suspend (Message) -> String) {
     val attachment = message.image() ?: return
+    // Stickers are small, bare images; photos fill the bubble.
+    val maxHeight = if (attachment.sticker) 140.dp else 260.dp
     if ((attachment.size ?: 0) > AUTO_LOAD_BYTES) return
     // null while loading; a failure shows as text rather than loading forever.
     val image by produceState<Result<ImageBitmap>?>(null, message.id) {
@@ -60,7 +62,7 @@ fun InlineImage(message: Message, maxWidth: Dp, load: suspend (Message) -> Strin
         loaded.isFailure -> BasicText("Photo · couldn't load", style = Type.small)
         else -> Image(
             loaded.getOrThrow(), contentDescription = "Photo", contentScale = ContentScale.Fit,
-            modifier = Modifier.widthIn(max = maxWidth).heightIn(max = 260.dp).padding(bottom = 3.dp),
+            modifier = Modifier.widthIn(max = maxWidth).heightIn(max = maxHeight).padding(bottom = 3.dp),
         )
     }
 }

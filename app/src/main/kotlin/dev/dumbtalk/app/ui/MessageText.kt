@@ -10,7 +10,9 @@ fun messageSummary(message: Message?): String {
     message.text?.let { return it }
     if (message.poll != null) return "Poll: ${message.poll!!.question}"
     if (message.stickerPath != null) return "Sticker"
-    return when (message.attachments.firstOrNull()?.kind) {
+    val first = message.attachments.firstOrNull()
+    if (first?.sticker == true) return "Sticker"
+    return when (first?.kind) {
         AttachmentKind.IMAGE -> "Photo"
         AttachmentKind.VIDEO -> "Video"
         AttachmentKind.AUDIO -> "Voice note"

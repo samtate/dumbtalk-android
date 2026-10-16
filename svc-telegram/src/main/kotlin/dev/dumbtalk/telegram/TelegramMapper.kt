@@ -130,7 +130,10 @@ internal class TelegramMapper(private val service: TelegramService) {
 
     private fun caption(text: TdApi.FormattedText?) = text?.text?.takeIf { it.isNotBlank() }
 
-    private fun attachment(file: TdApi.File, kind: AttachmentKind, mime: String? = null, name: String? = null, width: Int? = null, height: Int? = null) =
+    private fun attachment(
+        file: TdApi.File, kind: AttachmentKind, mime: String? = null, name: String? = null,
+        width: Int? = null, height: Int? = null, sticker: Boolean = false,
+    ) =
         Attachment(
             id = file.id.toString(),
             kind = kind,
@@ -140,6 +143,7 @@ internal class TelegramMapper(private val service: TelegramService) {
             size = file.size.takeIf { it > 0 } ?: file.expectedSize,
             width = width,
             height = height,
+            sticker = sticker,
         )
 
     private fun describe(content: TdApi.MessageContent): Described = when (content) {
@@ -153,7 +157,12 @@ internal class TelegramMapper(private val service: TelegramService) {
         is TdApi.MessageVoiceNote -> Described(caption(content.caption), listOf(attachment(content.voiceNote.voice, AttachmentKind.AUDIO, content.voiceNote.mimeType)))
         is TdApi.MessageAudio -> Described(caption(content.caption) ?: listOf(content.audio.performer, content.audio.title).filter { it.isNotBlank() }.joinToString(" – ").ifBlank { null }, listOf(attachment(content.audio.audio, AttachmentKind.AUDIO, content.audio.mimeType, content.audio.fileName)))
         is TdApi.MessageDocument -> Described(caption(content.caption) ?: content.document.fileName.ifBlank { null }, listOf(attachment(content.document.document, AttachmentKind.FILE, content.document.mimeType, content.document.fileName)))
-        is TdApi.MessageSticker -> Described("${content.sticker.emoji} Sticker".trim())
+        // Static WebP stickers display as images; animated ones (TGS, WebM) stay a label.
+        is TdApi.MessageSticker -> if (content.sticker.format is TdApi.StickerFormatWebp) {
+            Described(null, listOf(attachment(content.sticker.sticker, AttachmentKind.IMAGE, "image/webp", sticker = true)))
+        } else {
+            Described("${content.sticker.emoji} Sticker".trim())
+        }
         is TdApi.MessagePoll -> Described(null, poll = Poll(
             question = content.poll.question.text,
             options = content.poll.options.mapIndexed { index, option -> Poll.Option(index, option.text.text, List(option.voterCount) { "" }) },

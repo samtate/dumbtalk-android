@@ -66,6 +66,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             "video" -> AttachmentKind.VIDEO
             "audio" -> AttachmentKind.AUDIO
             "document" -> AttachmentKind.FILE
+            "sticker" -> AttachmentKind.IMAGE
             else -> null
         }
         return Message(
@@ -78,7 +79,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
                 else -> Direction.INCOMING
             },
             sender = if (fromMe) "You" else json.optString("senderName").ifBlank { null },
-            text = if (kind == "sticker") "Sticker" else json.optString("text").ifBlank { null },
+            text = json.optString("text").ifBlank { null },
             attachments = listOfNotNull(attachmentKind?.let {
                 Attachment(
                     id = json.getString("id"),
@@ -86,6 +87,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
                     contentType = json.optString("mime").ifBlank { null },
                     filename = json.optString("filename").ifBlank { null },
                     size = json.optLong("size").takeIf { size -> size > 0 },
+                    sticker = kind == "sticker",
                 )
             }),
             reactions = json.optJSONArray("reactions").objects().map {

@@ -82,6 +82,8 @@ data class Attachment(
     val caption: String? = null,
     val width: Int? = null,
     val height: Int? = null,
+    /** A sticker: shown as a bare image, summarised as "Sticker". */
+    val sticker: Boolean = false,
 )
 
 data class Quote(val author: String, val text: String? = null, val sentAt: Long? = null)

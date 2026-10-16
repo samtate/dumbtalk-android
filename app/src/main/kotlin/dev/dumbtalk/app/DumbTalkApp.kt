@@ -1,5 +1,6 @@
 package dev.dumbtalk.app
 
+import dev.dumbtalk.app.media.MediaFiles
 import dev.dumbtalk.app.ui.Fonts
 import android.app.Application
 import android.os.Build
@@ -58,6 +59,7 @@ open class DumbTalkApp : Application() {
     override fun onCreate() {
         super.onCreate()
         Fonts.init(this, pixelFallback = usePixelFallbackFonts)
+        MediaFiles.cleanOutgoing(this)
         registry = ServiceRegistry(createServices())
         inbox = InboxModel(registry, scope)
 

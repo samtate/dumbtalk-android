@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.media
 
+import android.util.LruCache
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -45,8 +46,24 @@ object MediaFiles {
 
     data class Picked(val path: String, val mime: String)
 
+    /** Recently decoded images, so scrolling a chat doesn't decode them again. About 16 MB. */
+    private val cache = object : LruCache<String, Bitmap>(16 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap) = value.byteCount
+    }
+
+    /** Deletes picked files and recordings left in the cache by earlier sends. */
+    fun cleanOutgoing(context: Context, olderThanMillis: Long = 24 * 3600_000L) {
+        val cutoff = System.currentTimeMillis() - olderThanMillis
+        File(context.cacheDir, "outgoing").listFiles()?.filter { it.lastModified() < cutoff }?.forEach { it.delete() }
+    }
+
     /** Decodes an image no larger than [maxSide] pixels on its long side. */
     fun thumbnail(path: String, maxSide: Int): Bitmap? {
+        val key = "$path@$maxSide"
+        return cache.get(key) ?: decode(path, maxSide)?.also { cache.put(key, it) }
+    }
+
+    private fun decode(path: String, maxSide: Int): Bitmap? {
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(path, bounds)
         if (bounds.outWidth <= 0) return null
