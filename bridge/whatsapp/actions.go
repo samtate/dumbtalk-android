@@ -213,9 +213,7 @@ func (c *Client) React(chat, id, emoji string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if _, err := c.wa.SendMessage(ctx, jid, c.wa.BuildReaction(jid, sender, id, emoji)); err != nil {
+	if err := c.send(jid, c.wa.BuildReaction(jid, sender, id, emoji)); err != nil {
 		return err
 	}
 	return c.store.setReaction(jid.String(), id, c.ownJID().String(), emoji)
@@ -249,9 +247,7 @@ func (c *Client) PinMessage(chat, id string, pinned bool) error {
 		msg.MessageContextInfo = &waE2E.MessageContextInfo{MessageAddOnDurationInSecs: proto.Uint32(pinSeconds)}
 		until = now + pinSeconds*1000
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if _, err = c.wa.SendMessage(ctx, jid, msg); err != nil {
+	if err := c.send(jid, msg); err != nil {
 		return err
 	}
 	return c.store.setMessagePinned(jid.String(), id, pinned, now, until)
@@ -263,9 +259,7 @@ func (c *Client) Edit(chat, id, text string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if _, err := c.wa.SendMessage(ctx, jid, c.wa.BuildEdit(jid, id, &waE2E.Message{Conversation: proto.String(text)})); err != nil {
+	if err := c.send(jid, c.wa.BuildEdit(jid, id, &waE2E.Message{Conversation: proto.String(text)})); err != nil {
 		return err
 	}
 	return c.store.editMessage(jid.String(), id, text, nil)
@@ -277,9 +271,7 @@ func (c *Client) Revoke(chat, id string) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if _, err := c.wa.SendMessage(ctx, jid, c.wa.BuildRevoke(jid, types.EmptyJID, id)); err != nil {
+	if err := c.send(jid, c.wa.BuildRevoke(jid, types.EmptyJID, id)); err != nil {
 		return err
 	}
 	return c.store.deleteMessage(jid.String(), id)
@@ -353,6 +345,21 @@ func (c *Client) CloseChat() error {
 	return c.wa.SendPresence(ctx, types.PresenceUnavailable)
 }
 
+// send sends a message that needs nothing back but success.
+func (c *Client) send(jid types.JID, msg *waE2E.Message) error {
+	ctx, cancel := timeout()
+	defer cancel()
+	_, err := c.wa.SendMessage(ctx, jid, msg)
+	return err
+}
+
+// sendAppState syncs a chat setting (archive, pin, mute) to our other devices.
+func (c *Client) sendAppState(patch appstate.PatchInfo) error {
+	ctx, cancel := timeout()
+	defer cancel()
+	return c.wa.SendAppState(ctx, patch)
+}
+
 func (c *Client) lastKey(jid types.JID) (time.Time, *waCommon.MessageKey) {
 	last, err := c.store.lastMessage(jid.String())
 	if err != nil || last == nil {
@@ -370,9 +377,7 @@ func (c *Client) SetArchived(chat string, archived bool) error {
 		return err
 	}
 	ts, key := c.lastKey(jid)
-	ctx, cancel := timeout()
-	defer cancel()
-	if err := c.wa.SendAppState(ctx, appstate.BuildArchive(jid, archived, ts, key)); err != nil {
+	if err := c.sendAppState(appstate.BuildArchive(jid, archived, ts, key)); err != nil {
 		return err
 	}
 	return c.store.updateChat(jid.String(), "archived", b2i(archived))
@@ -384,9 +389,7 @@ func (c *Client) SetPinned(chat string, pinned bool) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if err := c.wa.SendAppState(ctx, appstate.BuildPin(jid, pinned)); err != nil {
+	if err := c.sendAppState(appstate.BuildPin(jid, pinned)); err != nil {
 		return err
 	}
 	return c.store.updateChat(jid.String(), "pinned", b2i(pinned))
@@ -398,9 +401,7 @@ func (c *Client) SetMuted(chat string, muted bool) error {
 	if err != nil {
 		return err
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	if err := c.wa.SendAppState(ctx, appstate.BuildMute(jid, muted, 0)); err != nil {
+	if err := c.sendAppState(appstate.BuildMute(jid, muted, 0)); err != nil {
 		return err
 	}
 	until := int64(0)
