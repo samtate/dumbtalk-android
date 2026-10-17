@@ -37,6 +37,12 @@ class WhatsAppService(dataDir: File, deviceName: String, scope: CoroutineScope) 
         Log.w("WhatsApp", message)
     }
 
+    override suspend fun capabilities() = super.capabilities().copy(
+        pins = true, polls = true, directPolls = true, mentions = true, disappearingMessages = true, blocking = true, groups = true,
+        // WhatsApp offers 24 hours, 7 days and 90 days.
+        disappearingDurations = listOf(86_400, 604_800, 7_776_000),
+    )
+
     override suspend fun beginSetup(): SetupStep {
         if (bridge { isLinked() }) return complete()
         return SetupStep.Choice(
@@ -109,8 +115,20 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun chatJson(chat: String): String = client.chatJSON(chat)
     override fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String =
         client.messagesJSON(chat, beforeTs, beforeId, limit)
+    override fun pinnedMessagesJson(chat: String): String = client.pinnedMessagesJSON(chat)
+    override fun pinMessage(chat: String, id: String, pinned: Boolean) = client.pinMessage(chat, id, pinned)
+    override fun createPoll(chat: String, question: String, optionsJson: String, multiple: Boolean): String = client.createPoll(chat, question, optionsJson, multiple)
+    override fun votePoll(chat: String, id: String, optionsJson: String) = client.votePoll(chat, id, optionsJson)
     override fun searchJson(query: String): String = client.searchJSON(query)
-    override fun sendText(chat: String, text: String, quoteId: String): String = client.sendText(chat, text, quoteId)
+    override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String = client.sendText(chat, text, quoteId, spansJson)
+    override fun membersJson(chat: String): String = client.membersJSON(chat)
+    override fun setExpireTimer(chat: String, seconds: Int) = client.setExpireTimer(chat, seconds.toLong())
+    override fun setBlocked(chat: String, blocked: Boolean) = client.setBlocked(chat, blocked)
+    override fun createGroup(name: String, membersJson: String): String = client.createGroup(name, membersJson)
+    override fun renameGroup(chat: String, name: String) = client.renameGroup(chat, name)
+    override fun addMembers(chat: String, membersJson: String) = client.addMembers(chat, membersJson)
+    override fun removeMember(chat: String, member: String) = client.removeMember(chat, member)
+    override fun leaveGroup(chat: String) = client.leaveGroup(chat)
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = client.react(chat, id, if (remove) "" else emoji)
     override fun edit(chat: String, id: String, text: String) = client.edit(chat, id, text)
     override fun delete(chat: String, id: String) = client.revoke(chat, id)
@@ -124,6 +142,7 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun resolvePhone(phone: String): String = client.resolvePhone(phone)
     override fun contactsJson(): String = client.contactsJSON()
     override fun downloadMedia(chat: String, id: String): String = client.downloadMedia(chat, id)
+    override fun conversationAvatar(chat: String): String = client.conversationAvatar(chat)
     override fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String =
         client.sendMedia(chat, path, mime, caption, voiceNote)
 }

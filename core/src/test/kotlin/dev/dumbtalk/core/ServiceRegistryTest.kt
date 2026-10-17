@@ -19,7 +19,7 @@ class ServiceRegistryTest {
     fun inboxMergesServicesWithFavouritesFirst() = runTest {
         val inbox = registry().inbox(archived = false).conversations
 
-        assertEquals(ServiceId.entries.toSet(), inbox.map { it.serviceId }.toSet())
+        assertEquals(ServiceId.entries.filter { it != ServiceId.SMS }.toSet(), inbox.map { it.serviceId }.toSet())
         val favourites = inbox.takeWhile { it.isFavourite }
         assertEquals(setOf("Maya Chen", "Family"), favourites.map { it.title }.toSet())
         val rest = inbox.drop(favourites.size)

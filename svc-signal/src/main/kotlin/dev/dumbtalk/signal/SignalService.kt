@@ -35,12 +35,34 @@ class SignalService(context: Context, dataDir: File, deviceName: String, scope: 
         }) { client.connect() }
     }
 
+    override suspend fun sendAttachments(conversation: dev.dumbtalk.core.Conversation, files: List<dev.dumbtalk.core.OutgoingAttachment>, caption: String?, replyTo: dev.dumbtalk.core.Message?) {
+        val encoded = org.json.JSONArray()
+        files.forEach { file ->
+            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            if (file.mimeType.startsWith("image/")) android.graphics.BitmapFactory.decodeFile(file.path, bounds)
+            encoded.put(JSONObject().put("path", file.path).put("mime", file.mimeType)
+                .put("width", bounds.outWidth.takeIf { it > 0 }).put("height", bounds.outHeight.takeIf { it > 0 }))
+        }
+        bridge { client.sendMediaBatch(conversation.remoteId, encoded.toString(), caption.orEmpty(), replyTo?.id.orEmpty()) }
+    }
+
+    override suspend fun sendAttachment(conversation: dev.dumbtalk.core.Conversation, path: String, mimeType: String, caption: String?) =
+        sendAttachments(conversation, listOf(dev.dumbtalk.core.OutgoingAttachment(path, mimeType)), caption)
+
+    /** Reactions name people by ACI; their chat is "c:<aci>". */
+    override fun personChat(personId: String) = if (personId.contains(':')) personId else "c:$personId"
+
     override fun log(message: String) {
         Log.w("Signal", message)
     }
 
     /** Signal's own apps send voice notes as AAC. */
-    override suspend fun capabilities() = super.capabilities().copy(voiceNoteMime = "audio/aac")
+    override suspend fun capabilities() = super.capabilities().copy(
+        voiceNoteMime = "audio/aac", pins = true, polls = true, closingPolls = true,
+        mentions = true, disappearingMessages = true, messageRequests = true, blocking = true, groups = true,
+        // Signal's own choices: 30 seconds to 4 weeks.
+        disappearingDurations = listOf(30, 300, 3_600, 28_800, 86_400, 604_800, 2_419_200),
+    )
 
     override suspend fun beginSetup(): SetupStep {
         if (bridge { isLinked() }) return complete()
@@ -90,8 +112,21 @@ private class RustBridge(private val client: SignalClient) : NativeBridge {
     override fun chatJson(chat: String): String = client.chatJson(chat)
     override fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String =
         client.messagesJson(chat, beforeTs, beforeId, limit)
+    override fun pinnedMessagesJson(chat: String): String = client.pinnedMessagesJson(chat)
+    override fun pinMessage(chat: String, id: String, pinned: Boolean) = client.pinMessage(chat, id, pinned)
+    override fun createPoll(chat: String, question: String, optionsJson: String, multiple: Boolean): String = client.createPoll(chat, question, optionsJson, multiple)
+    override fun votePoll(chat: String, id: String, optionsJson: String) = client.votePoll(chat, id, optionsJson)
+    override fun closePoll(chat: String, id: String) = client.closePoll(chat, id)
     override fun searchJson(query: String): String = client.searchJson(query)
-    override fun sendText(chat: String, text: String, quoteId: String): String = client.sendText(chat, text, quoteId)
+    override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String = client.sendText(chat, text, quoteId, spansJson)
+    override fun membersJson(chat: String): String = client.membersJson(chat)
+    override fun setExpireTimer(chat: String, seconds: Int) = client.setExpireTimer(chat, seconds.toUInt())
+    override fun respondRequest(chat: String, action: String) = client.respondRequest(chat, action)
+    override fun createGroup(name: String, membersJson: String): String = client.createGroup(name, membersJson)
+    override fun renameGroup(chat: String, name: String) = client.renameGroup(chat, name)
+    override fun addMembers(chat: String, membersJson: String) = client.addMembers(chat, membersJson)
+    override fun removeMember(chat: String, member: String) = client.removeMember(chat, member)
+    override fun leaveGroup(chat: String) = client.leaveGroup(chat)
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = client.react(chat, id, emoji, remove)
     override fun edit(chat: String, id: String, text: String) = client.edit(chat, id, text)
     override fun delete(chat: String, id: String) = client.delete(chat, id)
@@ -102,7 +137,9 @@ private class RustBridge(private val client: SignalClient) : NativeBridge {
     override fun setMuted(chat: String, value: Boolean) = client.setMuted(chat, value)
     override fun resolvePhone(phone: String): String = client.resolvePhone(phone)
     override fun contactsJson(): String = client.contactsJson()
+    override fun conversationAvatar(chat: String): String = client.conversationAvatar(chat)
     override fun downloadMedia(chat: String, id: String): String = client.downloadMedia(chat, id)
+    override fun downloadMediaAt(chat: String, id: String, index: Int): String = client.downloadAttachment(chat, id, index.toUInt())
     override fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String =
         client.sendMedia(chat, path, mime, caption, voiceNote)
 }

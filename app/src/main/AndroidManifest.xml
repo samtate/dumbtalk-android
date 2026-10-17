@@ -10,6 +10,14 @@
     <uses-permission android:name="android.permission.WAKE_LOCK" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <uses-feature android:name="android.hardware.telephony" android:required="false" />
+    <uses-permission android:name="android.permission.READ_SMS" />
+    <uses-permission android:name="android.permission.SEND_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_SMS" />
+    <uses-permission android:name="android.permission.RECEIVE_MMS" />
+    <uses-permission android:name="android.permission.RECEIVE_WAP_PUSH" />
+    <uses-permission android:name="android.permission.READ_CONTACTS" />
+
     <!-- To offer "Link with … on this phone" when the main app is installed here. -->
     <queries>
         <intent>
@@ -44,7 +52,44 @@
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
             </intent-filter>
+            <intent-filter>
+                <action android:name="android.intent.action.SENDTO" />
+                <category android:name="android.intent.category.DEFAULT" />
+                <category android:name="android.intent.category.BROWSABLE" />
+                <data android:scheme="sms" /><data android:scheme="smsto" />
+                <data android:scheme="mms" /><data android:scheme="mmsto" />
+            </intent-filter>
         </activity>
+
+        <!-- These handlers run without starting any messaging bridge. -->
+        <receiver android:name=".sms.SmsDeliveryReceiver" android:exported="true"
+            android:process=":sms" android:directBootAware="true"
+            android:permission="android.permission.BROADCAST_SMS">
+            <intent-filter><action android:name="android.provider.Telephony.SMS_DELIVER" /></intent-filter>
+        </receiver>
+        <receiver android:name=".sms.UnsupportedMmsReceiver" android:exported="true"
+            android:process=":sms" android:directBootAware="true"
+            android:permission="android.permission.BROADCAST_WAP_PUSH">
+            <intent-filter>
+                <action android:name="android.provider.Telephony.WAP_PUSH_DELIVER" />
+                <data android:mimeType="application/vnd.wap.mms-message" />
+            </intent-filter>
+        </receiver>
+        <receiver android:name=".sms.SmsResultReceiver" android:exported="false" android:process=":sms" />
+        <receiver android:name=".sms.SmsUnlockReceiver" android:exported="true" android:directBootAware="true" android:process=":sms">
+            <intent-filter>
+                <action android:name="android.intent.action.USER_UNLOCKED" />
+                <action android:name="android.intent.action.BOOT_COMPLETED" />
+            </intent-filter>
+        </receiver>
+        <service android:name=".sms.SmsRespondService" android:exported="true" android:process=":sms"
+            android:permission="android.permission.SEND_RESPOND_VIA_MESSAGE">
+            <intent-filter>
+                <action android:name="android.intent.action.RESPOND_VIA_MESSAGE" />
+                <data android:scheme="sms" /><data android:scheme="smsto" />
+                <data android:scheme="mms" /><data android:scheme="mmsto" />
+            </intent-filter>
+        </service>
 
         <!-- Holds the Signal, Telegram and WhatsApp connections open; there is
              no push server, so this is how messages arrive in the background. -->

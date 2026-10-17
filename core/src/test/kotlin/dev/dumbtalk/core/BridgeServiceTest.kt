@@ -48,7 +48,7 @@ private class FakeBridge : NativeBridge {
         return """[{"id":"m1","chat":"$chat","fromMe":true,"ts":5,"kind":"text","text":"yo","status":"read","reactions":[]}]"""
     }
     override fun searchJson(query: String) = "[]"
-    override fun sendText(chat: String, text: String, quoteId: String): String {
+    override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String {
         call("send:$chat:$text:$quoteId")
         return """{"id":"m2","chat":"$chat","fromMe":true,"ts":6,"kind":"text","text":"$text","status":"sent","reactions":[]}"""
     }

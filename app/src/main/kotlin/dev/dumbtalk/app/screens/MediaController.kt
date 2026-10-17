@@ -20,6 +20,7 @@ import androidx.core.content.FileProvider
 import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.media.MediaFiles
 import dev.dumbtalk.app.media.VoiceRecorder
+import dev.dumbtalk.core.OutgoingAttachment
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Message
 import kotlinx.coroutines.CoroutineScope
@@ -30,7 +31,7 @@ import java.io.File
 
 /** A full-screen media step over the chat. */
 sealed interface MediaOverlay {
-    data class Photo(val path: String) : MediaOverlay
+    data class Photo(val path: String, val message: Message, val attachments: List<dev.dumbtalk.core.Attachment>, val index: Int) : MediaOverlay
     data class Video(val path: String, val mime: String?) : MediaOverlay
     /** Choose a file or take a photo, then send it with the draft as caption. */
     data object Attach : MediaOverlay
@@ -54,8 +55,10 @@ class MediaController(
         private set
 
     /** The file chosen (or photo taken) in the attach panel. */
-    var picked by mutableStateOf<MediaFiles.Picked?>(null)
+    val picked get() = model.attachments
+    var picking by mutableStateOf(false)
         private set
+    fun removePicked(index: Int) = model.removeAttachment(index)
 
     var voiceStage by mutableStateOf(VoiceStage.READY)
         private set
@@ -68,7 +71,7 @@ class MediaController(
     /** MIME type voice notes should be recorded as; set by the screen from the service. */
     var voiceMime = "audio/ogg"
 
-    internal lateinit var filePicker: ManagedActivityResultLauncher<String, Uri?>
+    internal lateinit var filePicker: ManagedActivityResultLauncher<String, List<Uri>>
     internal lateinit var camera: ManagedActivityResultLauncher<Uri, Boolean>
     internal lateinit var microphone: ManagedActivityResultLauncher<String, Boolean>
     private var pendingPhoto: File? = null
@@ -85,11 +88,25 @@ class MediaController(
         }
     }
 
-    /** Opens a photo or video full screen. */
-    fun view(message: Message) = withAttachment(message) { path ->
-        val attachment = message.attachments.first()
-        overlay = if (attachment.kind == AttachmentKind.VIDEO) MediaOverlay.Video(path, attachment.contentType) else MediaOverlay.Photo(path)
+    /** Opens a message's media full screen, at its first photo when it has several. */
+    fun open(message: Message) = view(message)
+
+    /** Opens a photo or video full screen; image albums can be browsed from the viewer. */
+    fun view(message: Message, imageIndex: Int = 0) {
+        val images = message.attachments.filter { it.kind == AttachmentKind.IMAGE }
+        val selected = images.getOrNull(imageIndex) ?: message.attachments.firstOrNull() ?: return
+        scope.launch {
+            runCatching { model.attachmentPath(message, selected) }
+                .onSuccess { path ->
+                    overlay = if (selected.kind == AttachmentKind.VIDEO) MediaOverlay.Video(path, selected.contentType)
+                    else MediaOverlay.Photo(path, message, images, imageIndex.coerceIn(0, (images.size - 1).coerceAtLeast(0)))
+                }
+                .onFailure { toast("Couldn't download: ${it.message ?: "failed"}") }
+        }
     }
+
+    fun nextPhoto(photo: MediaOverlay.Photo) = view(photo.message, (photo.index + 1) % photo.attachments.size)
+    fun previousPhoto(photo: MediaOverlay.Photo) = view(photo.message, (photo.index - 1 + photo.attachments.size) % photo.attachments.size)
 
     /** Plays a voice note or audio file, or stops it if it's playing. */
     fun togglePlay(message: Message) {
@@ -112,7 +129,6 @@ class MediaController(
     // region Attach
 
     fun openAttach() {
-        picked = null
         overlay = MediaOverlay.Attach
     }
 
@@ -124,25 +140,30 @@ class MediaController(
         camera.launch(FileProvider.getUriForFile(context, "${context.packageName}.files", file))
     }
 
-    internal fun onFilePicked(uri: Uri?) {
-        if (uri == null) return
+    internal fun onFilesPicked(uris: List<Uri>) {
+        if (uris.isEmpty()) return
         scope.launch {
-            runCatching { withContext(Dispatchers.IO) { MediaFiles.copyIn(context, uri) } }
-                .onSuccess { picked = it }
-                .onFailure { toast("Couldn't attach: ${it.message ?: "failed"}") }
+            picking = true
+            try {
+                for (uri in uris.take((10 - picked.size).coerceAtLeast(0))) {
+                    runCatching { withContext(Dispatchers.IO) { MediaFiles.copyIn(context, uri) } }
+                        .onSuccess { model.attach(listOf(OutgoingAttachment(it.path, it.mime))) }
+                        .onFailure { toast("Couldn't attach: ${it.message ?: "failed"}") }
+                }
+            } finally { picking = false }
         }
     }
 
     internal fun onPhotoTaken(taken: Boolean) {
         val file = pendingPhoto ?: return
-        if (taken && file.length() > 0) picked = MediaFiles.Picked(file.absolutePath, "image/jpeg") else file.delete()
+        if (taken && file.length() > 0) model.attach(listOf(OutgoingAttachment(file.absolutePath, "image/jpeg"))) else file.delete()
+        pendingPhoto = null
     }
 
     /** Sends the picked file with the draft text as its caption. */
     fun sendPicked() {
-        val file = picked ?: return
-        model.sendFile(file.path, file.mime, model.takeDraft())
-        picked = null
+        if (picking) return
+        model.send()
         overlay = null
     }
 
@@ -224,7 +245,7 @@ fun rememberMediaController(model: ChatModel, voiceMime: String): MediaControlle
     val scope = rememberCoroutineScope()
     val controller = remember(model) { MediaController(context, model, scope) }
     controller.voiceMime = voiceMime
-    controller.filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent(), controller::onFilePicked)
+    controller.filePicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents(), controller::onFilesPicked)
     controller.camera = rememberLauncherForActivityResult(ActivityResultContracts.TakePicture(), controller::onPhotoTaken)
     controller.microphone = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         if (granted) controller.beginRecording()

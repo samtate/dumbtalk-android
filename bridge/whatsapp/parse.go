@@ -18,6 +18,13 @@ type parsed struct {
 	QuoteID, QuoteSender, QuoteText string
 	Forwarded, Edited               bool
 	Poll                            string // JSON {question, options, multiple}
+	Mentions                        []string
+	Expiration                      uint32 // the disappearing timer it was sent with, seconds
+	Album                           string // the album's parent message ID, for a photo or video sent in one
+
+	// A chat's disappearing-message timer was set (to TimerSeconds).
+	TimerSet     bool
+	TimerSeconds uint32
 
 	// Mutations of an earlier message instead of new content.
 	ReactionTo, ReactionEmoji string
@@ -30,7 +37,7 @@ type parsed struct {
 func parseMessage(m *waE2E.Message) parsed {
 	var p parsed
 	extract(m, &p)
-	if p.Kind == "" && !p.IsReaction && p.RevokeID == "" && !p.Ignore {
+	if p.Kind == "" && !p.IsReaction && p.RevokeID == "" && !p.Ignore && !p.TimerSet {
 		p.Kind = "unsupported"
 		p.Text = "Unsupported message — open WhatsApp to view"
 	}
@@ -39,6 +46,15 @@ func parseMessage(m *waE2E.Message) parsed {
 
 func extract(m *waE2E.Message, p *parsed) {
 	if m == nil {
+		return
+	}
+	if association := m.GetMessageContextInfo().GetMessageAssociation(); p.Album == "" &&
+		association.GetAssociationType() == waE2E.MessageAssociation_MEDIA_ALBUM {
+		p.Album = association.GetParentMessageKey().GetID()
+	}
+	// An album's parent only announces the photos and videos that follow, each its own message.
+	if m.GetAlbumMessage() != nil {
+		p.Ignore = true
 		return
 	}
 	if sent := m.GetDeviceSentMessage(); sent.GetMessage() != nil {
@@ -57,6 +73,8 @@ func extract(m *waE2E.Message, p *parsed) {
 			extract(protocol.GetEditedMessage(), p)
 		case waE2E.ProtocolMessage_REVOKE:
 			p.RevokeID = protocol.GetKey().GetID()
+		case waE2E.ProtocolMessage_EPHEMERAL_SETTING:
+			p.TimerSet, p.TimerSeconds = true, protocol.GetEphemeralExpiration()
 		default:
 			// History sync notices, key shares, ephemeral settings, …
 			p.Ignore = true
@@ -137,6 +155,8 @@ func extract(m *waE2E.Message, p *parsed) {
 			p.QuoteText = previewText(quoted)
 		}
 		p.Forwarded = ctx.GetIsForwarded() || ctx.GetForwardingScore() > 0
+		p.Mentions = ctx.GetMentionedJID()
+		p.Expiration = ctx.GetExpiration()
 	}
 }
 
@@ -177,6 +197,9 @@ func contextInfo(m *waE2E.Message) *waE2E.ContextInfo {
 		return m.GetDocumentMessage().GetContextInfo()
 	case m.GetStickerMessage() != nil:
 		return m.GetStickerMessage().GetContextInfo()
+	}
+	if poll := pollCreation(m); poll != nil {
+		return poll.GetContextInfo()
 	}
 	return nil
 }

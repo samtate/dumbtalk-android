@@ -129,6 +129,7 @@ func (c *Client) SendMedia(chat, path, mimeType, caption string, voiceNote bool)
 		msg.DocumentMessage = &waE2E.DocumentMessage{Caption: proto.String(caption), Mimetype: proto.String(mimeType), FileName: &name, Title: &name,
 			URL: &up.URL, DirectPath: &up.DirectPath, MediaKey: up.MediaKey, FileEncSHA256: up.FileEncSHA256, FileSHA256: up.FileSHA256, FileLength: size}
 	}
+	expires := c.stampExpiry(jid, msg)
 	resp, err := c.wa.SendMessage(ctx, jid, msg)
 	if err != nil {
 		return "", err
@@ -137,6 +138,7 @@ func (c *Client) SendMedia(chat, path, mimeType, caption string, voiceNote bool)
 	sent := row{
 		Chat: jid.String(), ID: resp.ID, Sender: c.ownJID().String(), FromMe: true, Ts: resp.Timestamp.UnixMilli(),
 		Kind: kind, Text: caption, Filename: filepath.Base(path), Mime: mimeType, Size: int64(up.FileLength), Status: "sent", Raw: raw,
+		ExpiresAt: expiresAt(resp.Timestamp.UnixMilli(), expires),
 	}
 	if err := c.store.putMessage(sent); err != nil {
 		return "", err

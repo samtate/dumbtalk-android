@@ -4,6 +4,7 @@ package wabridge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"go.mau.fi/whatsmeow/proto/waCommon"
 	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"go.mau.fi/whatsmeow/types/events"
 	"google.golang.org/protobuf/proto"
 )
 
@@ -53,27 +55,35 @@ func (c *Client) ResolvePhone(phone string) (string, error) {
 	return "", errors.New("that number isn't on WhatsApp")
 }
 
-// SendText sends a message, optionally quoting quoteID, and returns it as JSON.
-func (c *Client) SendText(chat, text, quoteID string) (string, error) {
+// SendText sends a message, optionally quoting quoteID, and returns it as
+// JSON. spansJSON lists mentions ({start, length, style: "mention", id:
+// JID}) over "@Name" in text, in UTF-16 units; "" for none.
+func (c *Client) SendText(chat, text, quoteID, spansJSON string) (string, error) {
 	jid, err := parseChat(chat)
 	if err != nil {
 		return "", err
 	}
-	msg := &waE2E.Message{Conversation: proto.String(text)}
+	var spans []span
+	if spansJSON != "" {
+		if err := json.Unmarshal([]byte(spansJSON), &spans); err != nil {
+			return "", err
+		}
+	}
+	body, mentions := encodeMentions(text, spans)
+	context := &waE2E.ContextInfo{MentionedJID: mentions}
 	quoteSender, quoteText := "", ""
 	if quoteID != "" {
 		if quoted, _ := c.store.message(jid.String(), quoteID); quoted != nil {
-			participant := quoted.Sender
-			quoteSender, quoteText = participant, quoted.Text
-			msg = &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{
-				Text: proto.String(text),
-				ContextInfo: &waE2E.ContextInfo{
-					StanzaID:      proto.String(quoteID),
-					Participant:   proto.String(participant),
-					QuotedMessage: &waE2E.Message{Conversation: proto.String(quoted.Text)},
-				},
-			}}
+			quoteSender, quoteText = quoted.Sender, quoted.Text
+			context.StanzaID = proto.String(quoteID)
+			context.Participant = proto.String(quoted.Sender)
+			context.QuotedMessage = &waE2E.Message{Conversation: proto.String(quoted.Text)}
 		}
+	}
+	msg := &waE2E.Message{ExtendedTextMessage: &waE2E.ExtendedTextMessage{Text: proto.String(body), ContextInfo: context}}
+	expires := c.stampExpiry(jid, msg)
+	if context.StanzaID == nil && len(mentions) == 0 && expires == 0 {
+		msg = &waE2E.Message{Conversation: proto.String(body)}
 	}
 	ctx, cancel := timeout()
 	defer cancel()
@@ -83,13 +93,102 @@ func (c *Client) SendText(chat, text, quoteID string) (string, error) {
 	}
 	sent := row{
 		Chat: jid.String(), ID: resp.ID, Sender: c.ownJID().String(), FromMe: true, Ts: resp.Timestamp.UnixMilli(),
-		Kind: "text", Text: text, QuoteID: quoteID, QuoteSender: quoteSender, QuoteText: quoteText, Status: "sent",
+		Kind: "text", Text: body, QuoteID: quoteID, QuoteSender: quoteSender, QuoteText: quoteText, Status: "sent",
+		Mentions: mentions, ExpiresAt: expiresAt(resp.Timestamp.UnixMilli(), expires),
 	}
 	if err := c.store.putMessage(sent); err != nil {
 		return "", err
 	}
 	emit(c.listener, "chats", nil)
 	return marshal(c.toJSONMessage(sent, nil))
+}
+
+// stampExpiry marks an outgoing message with the chat's disappearing
+// timer, as WhatsApp clients expect; returns the timer (0 for none).
+func (c *Client) stampExpiry(chat types.JID, msg *waE2E.Message) uint32 {
+	seconds := c.store.chatTimer(chat.String())
+	if seconds == 0 {
+		return 0
+	}
+	ctx := contextInfo(msg)
+	if ctx == nil {
+		ctx = &waE2E.ContextInfo{}
+		switch {
+		case msg.ImageMessage != nil:
+			msg.ImageMessage.ContextInfo = ctx
+		case msg.VideoMessage != nil:
+			msg.VideoMessage.ContextInfo = ctx
+		case msg.AudioMessage != nil:
+			msg.AudioMessage.ContextInfo = ctx
+		case msg.DocumentMessage != nil:
+			msg.DocumentMessage.ContextInfo = ctx
+		case msg.ExtendedTextMessage != nil:
+			msg.ExtendedTextMessage.ContextInfo = ctx
+		case msg.StickerMessage != nil:
+			msg.StickerMessage.ContextInfo = ctx
+		default:
+			if poll := pollCreation(msg); poll != nil {
+				poll.ContextInfo = ctx
+			} else {
+				return 0
+			}
+		}
+	}
+	ctx.Expiration = proto.Uint32(seconds)
+	return seconds
+}
+
+func expiresAt(sent int64, seconds uint32) int64 {
+	if seconds == 0 {
+		return 0
+	}
+	return sent + int64(seconds)*1000
+}
+
+// SetExpireTimer sets a chat's disappearing-message timer in seconds (0 for off).
+func (c *Client) SetExpireTimer(chat string, seconds int) error {
+	jid, err := parseChat(chat)
+	if err != nil {
+		return err
+	}
+	ctx, cancel := timeout()
+	defer cancel()
+	if err := c.wa.SetDisappearingTimer(ctx, jid, time.Duration(seconds)*time.Second, time.Now()); err != nil {
+		return err
+	}
+	if changed, err := c.store.setChatTimer(jid.String(), uint32(seconds)); err != nil {
+		return err
+	} else if changed {
+		c.note(jid.String(), time.Now(), timerNote("You", uint32(seconds)))
+	}
+	emit(c.listener, "messages", map[string]string{"chat": jid.String()})
+	emit(c.listener, "chats", nil)
+	return nil
+}
+
+// SetBlocked blocks or unblocks the person in a direct chat.
+func (c *Client) SetBlocked(chat string, blocked bool) error {
+	jid, err := parseChat(chat)
+	if err != nil {
+		return err
+	}
+	if jid.Server == types.GroupServer {
+		return errors.New("groups can't be blocked; leave the group instead")
+	}
+	action := events.BlocklistChangeActionUnblock
+	if blocked {
+		action = events.BlocklistChangeActionBlock
+	}
+	ctx, cancel := timeout()
+	defer cancel()
+	if _, err := c.wa.UpdateBlocklist(ctx, jid, action); err != nil {
+		return err
+	}
+	if err := c.store.setBlocked([]string{jid.String()}, blocked, false); err != nil {
+		return err
+	}
+	emit(c.listener, "chats", nil)
+	return nil
 }
 
 func (c *Client) senderFor(chat types.JID, id string) (types.JID, bool, error) {
@@ -122,6 +221,42 @@ func (c *Client) React(chat, id, emoji string) error {
 	return c.store.setReaction(jid.String(), id, c.ownJID().String(), emoji)
 }
 
+const pinSeconds = 30 * 24 * 60 * 60
+
+// PinMessage pins a message for everyone, or removes its pin.
+func (c *Client) PinMessage(chat, id string, pinned bool) error {
+	jid, err := parseChat(chat)
+	if err != nil {
+		return err
+	}
+	stored, err := c.store.message(jid.String(), id)
+	if err != nil || stored == nil {
+		return errors.New("message not found")
+	}
+	key := &waCommon.MessageKey{RemoteJID: proto.String(jid.String()), FromMe: proto.Bool(stored.FromMe), ID: proto.String(id)}
+	if jid.Server == types.GroupServer && !stored.FromMe {
+		key.Participant = proto.String(stored.Sender)
+	}
+	typ := waE2E.PinInChatMessage_PIN_FOR_ALL
+	if !pinned {
+		typ = waE2E.PinInChatMessage_UNPIN_FOR_ALL
+	}
+	now := time.Now().UnixMilli()
+	msg := &waE2E.Message{PinInChatMessage: &waE2E.PinInChatMessage{Key: key, Type: &typ, SenderTimestampMS: proto.Int64(now)}}
+	var until int64
+	if pinned {
+		// WhatsApp pins expire; 30 days is the longest it offers.
+		msg.MessageContextInfo = &waE2E.MessageContextInfo{MessageAddOnDurationInSecs: proto.Uint32(pinSeconds)}
+		until = now + pinSeconds*1000
+	}
+	ctx, cancel := timeout()
+	defer cancel()
+	if _, err = c.wa.SendMessage(ctx, jid, msg); err != nil {
+		return err
+	}
+	return c.store.setMessagePinned(jid.String(), id, pinned, now, until)
+}
+
 // Edit replaces the text of one of our messages.
 func (c *Client) Edit(chat, id, text string) error {
 	jid, err := parseChat(chat)
@@ -133,7 +268,7 @@ func (c *Client) Edit(chat, id, text string) error {
 	if _, err := c.wa.SendMessage(ctx, jid, c.wa.BuildEdit(jid, id, &waE2E.Message{Conversation: proto.String(text)})); err != nil {
 		return err
 	}
-	return c.store.editMessage(jid.String(), id, text)
+	return c.store.editMessage(jid.String(), id, text, nil)
 }
 
 // Revoke deletes one of our messages for everyone.

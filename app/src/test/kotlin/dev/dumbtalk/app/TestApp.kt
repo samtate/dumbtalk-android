@@ -8,5 +8,5 @@ import dev.dumbtalk.core.demo.DemoService
 class TestApp : DumbTalkApp() {
     override val usePixelFallbackFonts = false
 
-    override fun createServices(): List<MessagingService> = ServiceId.entries.map { DemoService(it, scope) }
+    override fun createServices(): List<MessagingService> = ServiceId.entries.filter { it != ServiceId.SMS }.map { DemoService(it, scope) }
 }

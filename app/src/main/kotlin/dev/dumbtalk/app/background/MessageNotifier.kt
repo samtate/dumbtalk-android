@@ -41,7 +41,7 @@ class MessageNotifier(private val context: Context) {
     init {
         manager.createNotificationChannel(
             NotificationChannel(CHANNEL, "Messages", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "New messages from Signal, Telegram and WhatsApp."
+                description = "New messages from Signal, Telegram, WhatsApp and SMS."
             },
         )
     }

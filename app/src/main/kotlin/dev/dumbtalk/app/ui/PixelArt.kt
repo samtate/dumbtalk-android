@@ -34,13 +34,13 @@ enum class PixelArt(val rows: List<String>) {
     /** Telegram's paper plane. */
     TELEGRAM(
         listOf(
-            ".........",
-            ".......##",
-            ".....##.#",
-            "...##..#.",
-            ".##...#..",
-            "#....#...",
-            ".##.##...",
+            "........#",
+            "......###",
+            "....#####",
+            "..######.",
+            "######...",
+            "..####...",
+            "...###...",
             "...##....",
             "...#.....",
         ),
@@ -60,6 +60,8 @@ enum class PixelArt(val rows: List<String>) {
             "#........",
         ),
     ),
+
+    SMS(listOf("#########", "##.....##", "#.#...#.#", "#..#.#..#", "#...#...#", "#.......#", "#########")),
 
     /** Note to Self. */
     PENCIL(
@@ -96,6 +98,7 @@ fun serviceColor(id: ServiceId) = when (id) {
     ServiceId.SIGNAL -> Color(0xFF7FA2F0)
     ServiceId.TELEGRAM -> Color(0xFF7CC4EA)
     ServiceId.WHATSAPP -> Color(0xFF7FD6A0)
+    ServiceId.SMS -> Color(0xFFE4BF75)
 }
 
 @Composable
@@ -104,6 +107,7 @@ fun ServiceIcon(id: ServiceId, size: Dp = Dp(16f)) {
         ServiceId.SIGNAL -> PixelArt.SIGNAL
         ServiceId.TELEGRAM -> PixelArt.TELEGRAM
         ServiceId.WHATSAPP -> PixelArt.WHATSAPP
+        ServiceId.SMS -> PixelArt.SMS
     }
     PixelIcon(art, size, serviceColor(id), Modifier.semantics { contentDescription = id.label })
 }

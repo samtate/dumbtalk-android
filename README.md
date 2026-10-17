@@ -1,6 +1,6 @@
 # DumbTalk for Android
 
-A native, D-pad-first Signal, Telegram and WhatsApp client for Android keypad phones such as the
+A native, D-pad-first Signal, Telegram, WhatsApp and SMS client for Android keypad phones such as the
 Qin F22 Pro. It is the successor to the self-hosted [dumbtalk](https://github.com/samtate/dumbtalk)
 server: the same keypad interface, but every messaging service runs on the phone itself. No server is
 needed.
@@ -84,6 +84,20 @@ secrets) or `telegram.api_id`/`telegram.api_hash` in `local.properties`.
 - **Telegram** links by QR, or by phone number with a code sent to your other Telegram devices.
 - **WhatsApp** links by QR, or by phone number with a pairing code. The pairing code works with
   WhatsApp on the same phone.
+
+## SMS
+
+Open **Menu → Settings → Services → SMS → Make default SMS app**, then accept Android's role and
+permission prompts. Existing SMS messages stay in Android's system database. DumbTalk supports
+plain text (including multipart Unicode), contacts, notifications, search and sent/delivery/failure
+states. It uses the system's default SMS SIM; select one in Android settings if you have two SIMs.
+MMS and RCS are not supported in this version.
+
+Incoming SMS is handled by a protected broadcast receiver in a separate `:sms` process. Its
+application startup skips the native bridges, and it persists the message and posts the notification
+inside the broadcast's async lifetime. Deliveries received before first unlock are queued in
+private device-protected storage. This handles ordinary process death; Android Force stop and
+user-disabled notifications still take precedence. Switching default SMS apps keeps your messages.
 
 ## Layout
 

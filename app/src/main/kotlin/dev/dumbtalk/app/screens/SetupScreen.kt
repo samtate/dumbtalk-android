@@ -53,6 +53,10 @@ import kotlinx.coroutines.launch
 @Composable
 fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
     val service = app.registry.byId(serviceId)
+    if (service is dev.dumbtalk.app.sms.SmsService) {
+        dev.dumbtalk.app.sms.SmsSetupScreen(service, navigator)
+        return
+    }
     val scope = rememberCoroutineScope()
     var step by remember { mutableStateOf<SetupStep?>(null) }
     var busy by remember { mutableStateOf(false) }

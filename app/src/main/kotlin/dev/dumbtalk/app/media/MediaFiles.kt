@@ -35,7 +35,7 @@ object MediaFiles {
         val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: "file"
-        val dir = File(context.cacheDir, "outgoing").apply { mkdirs() }
+        val dir = File(File(context.cacheDir, "outgoing"), java.util.UUID.randomUUID().toString()).apply { mkdirs() }
         val file = File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_"))
         resolver.openInputStream(uri).use { input ->
             requireNotNull(input) { "Couldn't read that file" }

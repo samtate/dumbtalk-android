@@ -13,6 +13,7 @@ name = "uniffi-bindgen"
 path = "src/bin/uniffi-bindgen.rs"
 
 [dependencies]
+base64 = "0.22"
 # Pinned to a commit at least two weeks old; bump deliberately.
 presage = { git = "https://github.com/whisperfish/presage", rev = "33dd1491130793390e356e15a5711f1e6ca14fdb", features = ["cdsi"] }
 presage-store-sqlite = { git = "https://github.com/whisperfish/presage", rev = "33dd1491130793390e356e15a5711f1e6ca14fdb", default-features = false }
@@ -30,6 +31,10 @@ hex = "0.4"
 url = "2"
 tracing = "0.1"
 thiserror = "2"
+# The same versions libsignal-service uses: group changes go to Signal's
+# group server directly, which presage doesn't do.
+rand = "0.9"
+reqwest = { version = "0.13", default-features = false }
 
 # Signal's networking verifies TLS with Android's trust store via JNI, which
 # needs initialising from Kotlin (SignalNative.init).

@@ -4,13 +4,22 @@ package wabridge
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"sort"
 	"strings"
 	"time"
 
+	"go.mau.fi/whatsmeow/proto/waE2E"
 	"go.mau.fi/whatsmeow/types"
+	"google.golang.org/protobuf/proto"
 )
+
+type jsonPreview struct {
+	Title       string `json:"title"`
+	Description string `json:"description,omitempty"`
+	URL         string `json:"url,omitempty"`
+}
 
 type jsonReaction struct {
 	Sender string `json:"sender"`
@@ -20,26 +29,35 @@ type jsonReaction struct {
 }
 
 type jsonMessage struct {
-	ID          string         `json:"id"`
-	Chat        string         `json:"chat"`
-	Sender      string         `json:"sender"`
-	SenderName  string         `json:"senderName"`
-	FromMe      bool           `json:"fromMe"`
-	Ts          int64          `json:"ts"`
-	Kind        string         `json:"kind"`
-	Text        string         `json:"text"`
-	Filename    string         `json:"filename,omitempty"`
-	Mime        string         `json:"mime,omitempty"`
-	Size        int64          `json:"size,omitempty"`
-	QuoteID     string         `json:"quoteId,omitempty"`
-	QuoteSender string         `json:"quoteSender,omitempty"`
-	QuoteText   string         `json:"quoteText,omitempty"`
-	Edited      bool           `json:"edited"`
-	Deleted     bool           `json:"deleted"`
-	Forwarded   bool           `json:"forwarded"`
-	Status      string         `json:"status,omitempty"`
-	Poll        string         `json:"poll,omitempty"`
-	Reactions   []jsonReaction `json:"reactions"`
+	Thumbnail      string         `json:"thumbnail,omitempty"`
+	Width          uint32         `json:"width,omitempty"`
+	Height         uint32         `json:"height,omitempty"`
+	DurationMillis int64          `json:"durationMillis,omitempty"`
+	Waveform       []int          `json:"waveform,omitempty"`
+	ID             string         `json:"id"`
+	Chat           string         `json:"chat"`
+	Sender         string         `json:"sender"`
+	SenderName     string         `json:"senderName"`
+	FromMe         bool           `json:"fromMe"`
+	Ts             int64          `json:"ts"`
+	Kind           string         `json:"kind"`
+	Text           string         `json:"text"`
+	Filename       string         `json:"filename,omitempty"`
+	Mime           string         `json:"mime,omitempty"`
+	Size           int64          `json:"size,omitempty"`
+	QuoteID        string         `json:"quoteId,omitempty"`
+	QuoteSender    string         `json:"quoteSender,omitempty"`
+	QuoteText      string         `json:"quoteText,omitempty"`
+	Edited         bool           `json:"edited"`
+	Deleted        bool           `json:"deleted"`
+	Forwarded      bool           `json:"forwarded"`
+	Status         string         `json:"status,omitempty"`
+	Poll           string         `json:"poll,omitempty"`
+	Pinned         bool           `json:"pinned"`
+	Previews       []jsonPreview  `json:"previews,omitempty"`
+	Reactions      []jsonReaction `json:"reactions"`
+	Styles         []span         `json:"styles,omitempty"`
+	Album          string         `json:"album,omitempty"`
 }
 
 type jsonChat struct {
@@ -53,14 +71,54 @@ type jsonChat struct {
 	LastTs     int64        `json:"lastTs"`
 	Last       *jsonMessage `json:"last,omitempty"`
 	NoteToSelf bool         `json:"noteToSelf"`
+	// Disappearing-message timer in seconds, 0 for off.
+	ExpireTimer uint32 `json:"expireTimer"`
+	Blocked     bool   `json:"blocked"`
+	// Whether we're an admin of this group.
+	Admin bool `json:"admin"`
 }
 
 func (c *Client) toJSONMessage(r row, reactions []reactionRow) jsonMessage {
 	m := jsonMessage{
 		ID: r.ID, Chat: r.Chat, Sender: r.Sender, FromMe: r.FromMe, Ts: r.Ts, Kind: r.Kind, Text: r.Text,
 		Filename: r.Filename, Mime: r.Mime, Size: r.Size, QuoteID: r.QuoteID, QuoteText: r.QuoteText,
-		Edited: r.Edited, Deleted: r.Deleted, Forwarded: r.Forwarded, Status: r.Status, Poll: r.Poll,
+		Edited: r.Edited, Deleted: r.Deleted, Forwarded: r.Forwarded, Status: r.Status, Poll: c.pollJSON(r), Pinned: r.Pinned,
 		Reactions: []jsonReaction{},
+	}
+	m.Text, m.Styles = renderText(r.Text, r.Mentions, func(jid string) string {
+		parsed, err := types.ParseJID(jid)
+		if err != nil {
+			return jid
+		}
+		return c.contactName(c.canonical(parsed))
+	})
+	raw := r.Raw
+	if len(raw) == 0 {
+		raw, _ = c.store.raw(r.Chat, r.ID)
+	}
+	var wire waE2E.Message
+	if proto.Unmarshal(raw, &wire) == nil {
+		if text := wire.GetExtendedTextMessage(); text != nil && (text.GetTitle() != "" || text.GetMatchedText() != "") {
+			m.Previews = []jsonPreview{{Title: text.GetTitle(), Description: text.GetDescription(), URL: text.GetMatchedText()}}
+		}
+		m.Album = parseMessage(&wire).Album
+		leaf := mediaLeaf(&wire)
+		if image := leaf.GetImageMessage(); image != nil {
+			m.Width, m.Height = image.GetWidth(), image.GetHeight()
+		}
+		if video := leaf.GetVideoMessage(); video != nil {
+			m.Width, m.Height = video.GetWidth(), video.GetHeight()
+			m.DurationMillis = int64(video.GetSeconds()) * 1000
+			if thumb := video.GetJPEGThumbnail(); len(thumb) > 0 {
+				m.Thumbnail = base64.StdEncoding.EncodeToString(thumb)
+			}
+		}
+		if audio := leaf.GetAudioMessage(); audio != nil {
+			m.DurationMillis = int64(audio.GetSeconds()) * 1000
+			for _, sample := range audio.GetWaveform() {
+				m.Waveform = append(m.Waveform, int(sample))
+			}
+		}
 	}
 	if jid, err := types.ParseJID(r.Sender); err == nil {
 		m.SenderName = c.contactName(jid)
@@ -84,8 +142,9 @@ func (c *Client) toJSONChat(row chatRow) jsonChat {
 	chat := jsonChat{
 		JID: row.JID, Name: c.chatName(jid, row.Name), Group: jid.Server == types.GroupServer,
 		Archived: row.Archived, Pinned: row.Pinned, Unread: row.Unread, LastTs: row.LastTs,
-		Muted:      row.MutedUntil < 0 || row.MutedUntil > time.Now().UnixMilli(),
-		NoteToSelf: c.isMe(jid),
+		Muted:       row.MutedUntil < 0 || row.MutedUntil > time.Now().UnixMilli(),
+		NoteToSelf:  c.isMe(jid),
+		ExpireTimer: row.ExpireTimer, Blocked: row.Blocked, Admin: row.Admin,
 	}
 	if chat.NoteToSelf {
 		chat.Name = "Message yourself"
@@ -145,6 +204,18 @@ func (c *Client) MessagesJSON(chat string, beforeTs int64, beforeID string, limi
 	out := make([]jsonMessage, 0, len(rows))
 	for _, r := range rows {
 		out = append(out, c.toJSONMessage(r, reactions[r.ID]))
+	}
+	return marshal(out)
+}
+
+func (c *Client) PinnedMessagesJSON(chat string) (string, error) {
+	rows, err := c.store.pinnedMessages(chat)
+	if err != nil {
+		return "", err
+	}
+	out := make([]jsonMessage, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, c.toJSONMessage(r, nil))
 	}
 	return marshal(out)
 }

@@ -4,7 +4,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
@@ -52,7 +52,7 @@ fun EmojiPanel(title: String, onPick: (String) -> Unit, onClose: () -> Unit) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
     Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Back", onClose))
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxWidth()) {
         Header(title)
         Column(
             Modifier.verticalScroll(rememberScrollState()).padding(6.dp),

@@ -12,7 +12,9 @@ class MediaFlowTest : KeypadTest() {
         press(KeyEvent.KEYCODE_DPAD_CENTER) // open the first chat
         waitFor("Perfect! Meet at the station")
         waitUntil("the inline photo") { exists(hasContentDescription("Photo")) }
-        press(KeyEvent.KEYCODE_DPAD_UP) // from the newest message to the photo above it
+        // Maya's photo and last message are unread, so the chat opens on the
+        // last one read; the first unread, the photo, is just below it.
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
     }
 
     @Test

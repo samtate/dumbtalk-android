@@ -16,6 +16,12 @@ import androidx.compose.ui.unit.dp
 
 // Stroke icons from dumbtalk's AppIcon.tsx (24-unit viewBox, 1.8 stroke).
 enum class AppIcon(val pathData: String) {
+    PLAY("M8 4l13 8-13 8z"),
+    BOTTOM("M12 3v14M6 11l6 6 6-6M5 21h14"),
+    STOP("M5 5h14v14H5z"),
+    SEND("M3 3l19 9-19 9 4-9zM7 12h15"),
+    CLOSE("M5 5l14 14M19 5L5 19"),
+    CAMERA("M3 7h5l2-3h4l2 3h5v14H3zM8 14a4 4 0 1 0 8 0a4 4 0 1 0 -8 0"),
     ARCHIVE("M4 7h16v13H4zM2.5 4h19v4h-19zM9 12h6"),
     ATTACH("M8.5 12.5 15 6a3.2 3.2 0 0 1 4.5 4.5l-8 8a5 5 0 0 1-7-7l8-8a2.8 2.8 0 0 1 4 4l-7.5 7.5a1 1 0 0 1-1.5-1.5L14 7"),
     BLOCK("M3.5 12a8.5 8.5 0 1 0 17 0a8.5 8.5 0 1 0 -17 0zM6 18l12-12"),

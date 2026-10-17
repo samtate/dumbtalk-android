@@ -7,7 +7,9 @@ import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ConversationUpdate
 import dev.dumbtalk.core.Direction
+import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.TextSpan
 import dev.dumbtalk.core.MessagePage
 import dev.dumbtalk.core.MessagingService
 import dev.dumbtalk.core.SearchResult
@@ -24,6 +26,7 @@ import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.withTimeout
+import org.json.JSONArray
 import org.json.JSONObject
 
 /**
@@ -41,9 +44,29 @@ interface NativeBridge {
     fun chatsJson(archived: Boolean): String
     fun chatJson(chat: String): String
     fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String
+    fun pinnedMessagesJson(chat: String): String = "[]"
+    fun pinMessage(chat: String, id: String, pinned: Boolean) { throw BridgeException("Message pins are unavailable") }
+    /** [optionsJson] is a JSON array of option names; returns the sent message. */
+    fun createPoll(chat: String, question: String, optionsJson: String, multiple: Boolean): String = throw BridgeException("Polls are unavailable")
+    /** [optionsJson] is a JSON array of option indexes; empty withdraws the vote. */
+    fun votePoll(chat: String, id: String, optionsJson: String) { throw BridgeException("Polls are unavailable") }
+    fun closePoll(chat: String, id: String) { throw BridgeException("Closing polls is unavailable") }
     fun searchJson(query: String): String
 
-    fun sendText(chat: String, text: String, quoteId: String): String
+    /** [spansJson]: mentions [{start, length, style: "mention", id}] over [text], or "". */
+    fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String
+    /** The chat's other people: [{"id", "name", "admin"?, "pending"?}]. */
+    fun membersJson(chat: String): String = "[]"
+    fun setExpireTimer(chat: String, seconds: Int) { throw BridgeException("Disappearing messages are unavailable") }
+    /** "accept", "block", "unblock" or "delete" a message request. */
+    fun respondRequest(chat: String, action: String) { throw BridgeException("Message requests are unavailable") }
+    fun setBlocked(chat: String, blocked: Boolean) = respondRequest(chat, if (blocked) "block" else "unblock")
+    /** [membersJson]: a JSON array of chat ids; returns the new group's chat id. */
+    fun createGroup(name: String, membersJson: String): String = throw BridgeException("Groups are unavailable")
+    fun renameGroup(chat: String, name: String) { throw BridgeException("Groups are unavailable") }
+    fun addMembers(chat: String, membersJson: String) { throw BridgeException("Groups are unavailable") }
+    fun removeMember(chat: String, member: String) { throw BridgeException("Groups are unavailable") }
+    fun leaveGroup(chat: String) { throw BridgeException("Groups are unavailable") }
     fun react(chat: String, id: String, emoji: String, remove: Boolean)
     fun edit(chat: String, id: String, text: String)
     fun delete(chat: String, id: String)
@@ -61,6 +84,8 @@ interface NativeBridge {
 
     /** Downloads (once) a message's attachment; returns its local path. */
     fun downloadMedia(chat: String, id: String): String
+    fun downloadMediaAt(chat: String, id: String, index: Int): String = downloadMedia(chat, id)
+    fun conversationAvatar(chat: String): String = ""
     /** Sends a file (photo, video, audio or document by MIME type); returns the message JSON. */
     fun sendMedia(chat: String, path: String, mime: String, caption: String, voiceNote: Boolean): String
 }
@@ -198,9 +223,43 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         return json.page(bridge { chatsJson(archived) })
     }
 
+    override suspend fun conversationAvatar(conversation: Conversation): String? =
+        bridge { conversationAvatar(conversation.remoteId) }.ifBlank { conversation.avatarPath }
+
+    /** The bridge chat id of a one-to-one chat with [personId]. */
+    protected open fun personChat(personId: String): String = personId
+
+    override suspend fun personAvatar(personId: String): String? =
+        bridge { conversationAvatar(personChat(personId)) }.ifBlank { null }
+
     override suspend fun listMessages(conversation: Conversation, before: Message?): MessagePage {
         val messages = json.messages(bridge { messagesJson(conversation.remoteId, before?.sentAt ?: 0L, before?.id.orEmpty(), PAGE) })
         return MessagePage(messages, hasMore = messages.size >= PAGE, typingNames = typing.names(conversation.remoteId))
+    }
+
+    override suspend fun listPinnedMessages(conversation: Conversation): List<Message> =
+        json.messages(bridge { pinnedMessagesJson(conversation.remoteId) })
+
+    override suspend fun pinMessage(conversation: Conversation, message: Message, pinned: Boolean) {
+        bridge { pinMessage(conversation.remoteId, message.id, pinned) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
+
+    override suspend fun createPoll(conversation: Conversation, question: String, options: List<String>, multiple: Boolean) {
+        require(question.isNotBlank()) { "A poll needs a question" }
+        require(options.count { it.isNotBlank() } >= 2) { "A poll needs at least two options" }
+        bridge { createPoll(conversation.remoteId, question.trim(), JSONArray(options.map { it.trim() }.filter { it.isNotEmpty() }).toString(), multiple) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
+
+    override suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>) {
+        bridge { votePoll(conversation.remoteId, message.id, JSONArray(options).toString()) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
+
+    override suspend fun closePoll(conversation: Conversation, message: Message) {
+        bridge { closePoll(conversation.remoteId, message.id) }
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
     }
 
     override suspend fun markRead(conversation: Conversation) {
@@ -213,10 +272,52 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
 
     override suspend fun closeConversation(conversation: Conversation) = bridge { closeChat() }
 
-    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message {
-        val sent = json.message(bridge { sendText(conversation.remoteId, text, replyTo?.id.orEmpty()) })
+    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message =
+        sendText(conversation, text, replyTo, emptyList())
+
+    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?, mentions: List<TextSpan>): Message {
+        val spans = mentions.filter { it.style == TextSpan.Style.MENTION && it.target != null }
+        val encoded = if (spans.isEmpty()) "" else JSONArray(spans.map {
+            JSONObject().put("start", it.start).put("length", it.length).put("style", "mention").put("id", it.target)
+        }).toString()
+        val sent = json.message(bridge { sendText(conversation.remoteId, text, replyTo?.id.orEmpty(), encoded) })
         emit(ServiceEvent.MessagesChanged(id, conversation.id))
         return sent
+    }
+
+    override suspend fun listMembers(conversation: Conversation): List<Member> =
+        json.members(bridge { membersJson(conversation.remoteId) })
+
+    override suspend fun setBlocked(conversation: Conversation, blocked: Boolean) {
+        bridge { setBlocked(conversation.remoteId, blocked) }
+        emit(ServiceEvent.ConversationsChanged(id))
+    }
+
+    override suspend fun respondToMessageRequest(conversation: Conversation, accept: Boolean) {
+        bridge { respondRequest(conversation.remoteId, if (accept) "accept" else "delete") }
+        emit(ServiceEvent.ConversationsChanged(id))
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+    }
+
+    override suspend fun createGroup(name: String, members: List<String>): Conversation {
+        val chat = bridge { createGroup(name, JSONArray(members).toString()) }
+        emit(ServiceEvent.ConversationsChanged(id))
+        return json.conversation(bridge { chatJson(chat) })
+    }
+
+    override suspend fun renameGroup(conversation: Conversation, name: String) = groupChange(conversation) { renameGroup(it, name) }
+
+    override suspend fun addGroupMembers(conversation: Conversation, members: List<String>) =
+        groupChange(conversation) { addMembers(it, JSONArray(members).toString()) }
+
+    override suspend fun removeGroupMember(conversation: Conversation, member: Member) = groupChange(conversation) { removeMember(it, member.id) }
+
+    override suspend fun leaveGroup(conversation: Conversation) = groupChange(conversation) { leaveGroup(it) }
+
+    private suspend fun groupChange(conversation: Conversation, change: NativeBridge.(String) -> Unit) {
+        bridge { change(conversation.remoteId) }
+        emit(ServiceEvent.ConversationsChanged(id))
+        emit(ServiceEvent.MessagesChanged(id, conversation.id))
     }
 
     override suspend fun setTyping(conversation: Conversation, active: Boolean) = bridge { setTyping(conversation.remoteId, active) }
@@ -240,14 +341,16 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         update.archived?.let { value -> bridge { setArchived(conversation.remoteId, value) } }
         update.favourite?.let { value -> bridge { setPinned(conversation.remoteId, value) } }
         update.muted?.let { value -> bridge { setMuted(conversation.remoteId, value) } }
+        update.expiration?.let { value -> bridge { setExpireTimer(conversation.remoteId, value) } }
         emit(ServiceEvent.ConversationsChanged(id))
+        if (update.expiration != null) emit(ServiceEvent.MessagesChanged(id, conversation.id))
     }
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> =
         json.searchResults(bridge { searchJson(query) }, conversation)
 
     override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String =
-        bridge { downloadMedia(conversation.remoteId, message.id) }
+        bridge { downloadMediaAt(conversation.remoteId, message.id, message.attachments.indexOf(attachment).coerceAtLeast(0)) }
 
     override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) {
         bridge { sendMedia(conversation.remoteId, path, mimeType, caption.orEmpty(), false) }

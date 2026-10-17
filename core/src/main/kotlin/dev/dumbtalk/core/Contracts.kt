@@ -9,7 +9,8 @@ import kotlinx.coroutines.flow.Flow
 enum class ServiceId(val key: String, val label: String) {
     SIGNAL("signal", "Signal"),
     TELEGRAM("telegram", "Telegram"),
-    WHATSAPP("whatsapp", "WhatsApp");
+    WHATSAPP("whatsapp", "WhatsApp"),
+    SMS("sms", "SMS");
 
     companion object {
         fun fromKey(key: String): ServiceId? = entries.firstOrNull { it.key == key }
@@ -84,10 +85,28 @@ data class Attachment(
     val height: Int? = null,
     /** A sticker: shown as a bare image, summarised as "Sticker". */
     val sticker: Boolean = false,
+    val durationMillis: Long? = null,
+    /** Normalised amplitude samples, when the service supplies them. */
+    val waveform: List<Int> = emptyList(),
+    val thumbnailId: String? = null,
+    val thumbnailBase64: String? = null,
 )
 
 /** [messageId] is the quoted message's id (same form as [Message.id]), so the UI can jump to it. */
+data class OutgoingAttachment(val path: String, val mimeType: String)
+
 data class Quote(val author: String, val text: String? = null, val sentAt: Long? = null, val messageId: String? = null)
+
+/**
+ * Styling or a mention over part of a message's text. [start] and [length]
+ * count UTF-16 units, as Kotlin strings do. For a mention, [target] is the
+ * mentioned [Member.id] when known.
+ */
+data class TextSpan(val start: Int, val length: Int, val style: Style, val target: String? = null) {
+    enum class Style { BOLD, ITALIC, STRIKE, MONO, SPOILER, UNDERLINE, MENTION }
+
+    val end get() = start + length
+}
 
 data class LinkPreview(val title: String, val description: String? = null, val url: String? = null)
 
@@ -97,15 +116,25 @@ data class Poll(
     val multiple: Boolean,
     val closed: Boolean,
 ) {
-    data class Option(val index: Int, val text: String, val votes: List<String>)
+    /** [votes] names each voter where known (blank when only counted); [mine] is our own choice. */
+    data class Option(val index: Int, val text: String, val votes: List<String>, val mine: Boolean = false)
 }
 
 data class Capabilities(
+    val replies: Boolean = true,
+    val retries: Boolean = false,
+    val deleteConversations: Boolean = false,
     val reactions: Boolean = false,
     val edits: Boolean = false,
     val deletes: Boolean = false,
     val pins: Boolean = false,
     val polls: Boolean = false,
+    /** Polls can go to one-to-one chats, not only groups. */
+    val directPolls: Boolean = false,
+    /** A poll's sender can close it to further votes. */
+    val closingPolls: Boolean = false,
+    /** Sent text can @mention chat members, who get notified. */
+    val mentions: Boolean = false,
     val voiceNotes: Boolean = false,
     val viewOnce: Boolean = false,
     val groups: Boolean = false,
@@ -121,6 +150,7 @@ data class Capabilities(
     val stickers: Boolean = false,
     val muting: Boolean = false,
     val calls: Boolean = false,
+    /** Disappearing-message timers on offer, in seconds (Off is always offered). */
     val disappearingDurations: List<Int> = emptyList(),
     /** What recorded voice notes should be: "audio/ogg" (Opus) or "audio/aac". */
     val voiceNoteMime: String = "audio/ogg",
@@ -162,7 +192,7 @@ data class Receipt(
     }
 }
 
-data class Reaction(val emoji: String, val author: String, val isOwn: Boolean)
+data class Reaction(val emoji: String, val author: String, val isOwn: Boolean, val authorId: String? = null, val avatarPath: String? = null)
 
 enum class Direction { INCOMING, OUTGOING, SYSTEM }
 
@@ -185,9 +215,14 @@ data class Message(
     val previews: List<LinkPreview> = emptyList(),
     val stickerPath: String? = null,
     val forwardedFrom: String? = null,
+    /** Bold, italic, spoilers, mentions and so on over [text]. */
+    val spans: List<TextSpan> = emptyList(),
+    /** Messages sharing this were sent together as an album (Telegram, WhatsApp); see [mergeAlbums]. */
+    val albumId: String? = null,
 )
 
-data class Member(val id: String, val name: String)
+/** Someone in a chat. [isPending]: invited but not yet joined. */
+data class Member(val id: String, val name: String, val isAdmin: Boolean = false, val isPending: Boolean = false)
 
 /** Someone in a service's address book, who can be messaged without typing a number. */
 data class Contact(val id: String, val serviceId: ServiceId, val name: String, val detail: String? = null)
@@ -219,6 +254,8 @@ data class Conversation(
     val adminIds: List<String> = emptyList(),
     val inviteLink: String? = null,
     val permissions: Map<String, String> = emptyMap(),
+    /** We're an admin of this group, so may change who is in it. */
+    val isAdmin: Boolean = false,
 )
 
 data class ConversationPage(val conversations: List<Conversation>, val archivedCount: Int)
@@ -280,6 +317,10 @@ interface MessagingService {
     suspend fun disconnect()
 
     suspend fun listConversations(archived: Boolean): ConversationPage
+    /** Fetches a service-provided conversation photo into local storage when available. */
+    suspend fun conversationAvatar(conversation: Conversation): String? = conversation.avatarPath
+    /** A person's profile photo by their [Reaction.authorId], fetched into local storage when available. */
+    suspend fun personAvatar(personId: String): String? = null
     /** Newest page when [before] is null, else the page older than [before]. */
     suspend fun listMessages(conversation: Conversation, before: Message? = null): MessagePage
     suspend fun markRead(conversation: Conversation)
@@ -288,6 +329,14 @@ interface MessagingService {
     suspend fun openConversation(conversation: Conversation) {}
     suspend fun closeConversation(conversation: Conversation) {}
     suspend fun sendText(conversation: Conversation, text: String, replyTo: Message? = null): Message
+
+    /** Sends text with [mentions] (MENTION spans over "@Name" in [text]). */
+    suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?, mentions: List<TextSpan>): Message =
+        sendText(conversation, text, replyTo)
+
+    /** The chat's other people, for mentions and group info. */
+    suspend fun listMembers(conversation: Conversation): List<Member> = conversation.members
+    suspend fun retryMessage(conversation: Conversation, message: Message): Unit = unsupported("retrying messages")
     suspend fun setTyping(conversation: Conversation, active: Boolean) {}
     suspend fun messageDetails(conversation: Conversation, message: Message): Message = message
 
@@ -295,6 +344,7 @@ interface MessagingService {
         unsupported("reactions")
     suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate): Unit =
         unsupported("conversation changes")
+    suspend fun deleteConversation(conversation: Conversation): Unit = unsupported("deleting conversations")
     suspend fun searchMessages(query: String, conversation: Conversation? = null): List<SearchResult> =
         unsupported("search")
     /** Saved contacts on this network, sorted by name. */
@@ -305,14 +355,23 @@ interface MessagingService {
 
     /** Finds or starts a direct chat with a phone number or username. */
     suspend fun createDirect(address: String, title: String? = null): Conversation = unsupported("new messages")
-    suspend fun createGroup(name: String, members: List<String>): Unit = unsupported("groups")
+    /** Creates a group with us and [members] ([Contact.id]s); returns its chat. */
+    suspend fun createGroup(name: String, members: List<String>): Conversation = unsupported("groups")
     suspend fun settings(): ServiceSettings = ServiceSettings()
     suspend fun updateSettings(settings: ServiceSettings): ServiceSettings = unsupported("settings")
     /** Downloads (once) and returns the local path of a received attachment. */
     suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String =
         unsupported("attachments")
+    /** Downloads only a small server-side preview, without fetching the full video. */
+    suspend fun downloadThumbnail(conversation: Conversation, message: Message, attachment: Attachment): String? = null
     suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String? = null): Unit =
         unsupported("attachments")
+    /** Services with albums override this; others send an ordered set with one caption. */
+    suspend fun sendAttachments(conversation: Conversation, files: List<OutgoingAttachment>, caption: String? = null, replyTo: Message? = null) {
+        files.forEachIndexed { index, file ->
+            sendAttachment(conversation, file.path, file.mimeType, if (index == 0) caption else null)
+        }
+    }
     suspend fun forwardMessage(message: Message, target: Conversation): Unit = unsupported("forwarding")
     suspend fun listStickers(): List<Sticker> = emptyList()
     suspend fun sendSticker(conversation: Conversation, sticker: Sticker): Unit = unsupported("stickers")
@@ -327,9 +386,13 @@ interface MessagingService {
     suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>): Unit = unsupported("polls")
     suspend fun closePoll(conversation: Conversation, message: Message): Unit = unsupported("polls")
     suspend fun setBlocked(conversation: Conversation, blocked: Boolean): Unit = unsupported("blocking")
+    /** Accepts a message request, or (with [accept] false) deletes the chat. */
     suspend fun respondToMessageRequest(conversation: Conversation, accept: Boolean): Unit =
         unsupported("message requests")
-    suspend fun updateGroup(conversation: Conversation, changes: Map<String, Any?>): Unit = unsupported("groups")
+    suspend fun renameGroup(conversation: Conversation, name: String): Unit = unsupported("groups")
+    /** Adds people ([Contact.id]s) to a group. */
+    suspend fun addGroupMembers(conversation: Conversation, members: List<String>): Unit = unsupported("groups")
+    suspend fun removeGroupMember(conversation: Conversation, member: Member): Unit = unsupported("groups")
     suspend fun leaveGroup(conversation: Conversation): Unit = unsupported("groups")
     suspend fun openViewOnce(message: Message): String = unsupported("view-once media")
     suspend fun safetyNumber(conversation: Conversation): String = unsupported("safety numbers")

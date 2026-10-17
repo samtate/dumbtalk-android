@@ -8,6 +8,9 @@ import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.LinkPreview
+import dev.dumbtalk.core.Member
+import dev.dumbtalk.core.TextSpan
 import dev.dumbtalk.core.Poll
 import dev.dumbtalk.core.Quote
 import dev.dumbtalk.core.Reaction
@@ -21,10 +24,12 @@ import org.json.JSONObject
  * Maps the JSON the native bridges (WhatsApp in Go, Signal in Rust) return.
  * Both use the same shape:
  *
- * chat: {jid, name, group, archived, pinned, muted, unread, lastTs, last?, noteToSelf}
+ * chat: {jid, name, group, archived, pinned, muted, unread, lastTs, last?, noteToSelf,
+ *   expireTimer?, request?, blocked?, admin?}
  * message: {id, chat, sender, senderName, fromMe, ts, kind, text, filename?, mime?,
  *   size?, quoteId?, quoteSender?, quoteText?, edited, deleted, forwarded?, status?,
- *   poll?, reactions: [{emoji, name, fromMe}]}
+ *   poll?, reactions: [{emoji, name, fromMe}], styles?: [{start, length, style, id?}]}
+ * member: {id, name, admin?, pending?}
  */
 class BridgeJson(private val service: ServiceId, private val typingNames: (String) -> List<String>) {
 
@@ -52,7 +57,34 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             unreadCount = chat.optInt("unread"),
             typingNames = typingNames(jid),
             lastMessage = chat.optJSONObject("last")?.let(::message),
+            expiration = chat.optInt("expireTimer"),
+            isMessageRequest = chat.optBoolean("request"),
+            isBlocked = chat.optBoolean("blocked"),
+            isAdmin = chat.optBoolean("admin"),
         )
+    }
+
+    fun members(encoded: String): List<Member> = JSONArray(encoded).objects().map {
+        Member(it.getString("id"), it.optString("name").ifBlank { "Someone" }, it.optBoolean("admin"), it.optBoolean("pending"))
+    }
+
+    private fun spans(json: JSONArray?, text: String?): List<TextSpan> {
+        val length = text?.length ?: return emptyList()
+        return json.objects().mapNotNull {
+            val style = when (it.optString("style")) {
+                "bold" -> TextSpan.Style.BOLD
+                "italic" -> TextSpan.Style.ITALIC
+                "strike" -> TextSpan.Style.STRIKE
+                "mono" -> TextSpan.Style.MONO
+                "spoiler" -> TextSpan.Style.SPOILER
+                "underline" -> TextSpan.Style.UNDERLINE
+                "mention" -> TextSpan.Style.MENTION
+                else -> return@mapNotNull null
+            }
+            val start = it.optInt("start").coerceIn(0, length)
+            val end = (start + it.optInt("length")).coerceIn(start, length)
+            if (end > start) TextSpan(start, end - start, style, it.optString("id").ifBlank { null }) else null
+        }
     }
 
     fun messages(encoded: String): List<Message> = JSONArray(encoded).objects().map(::message)
@@ -81,7 +113,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             },
             sender = if (fromMe) "You" else json.optString("senderName").ifBlank { null },
             text = json.optString("text").ifBlank { null },
-            attachments = listOfNotNull(attachmentKind?.let {
+            attachments = json.optJSONArray("attachments")?.objects()?.mapNotNull(::attachment) ?: listOfNotNull(attachmentKind?.let {
                 Attachment(
                     id = json.getString("id"),
                     kind = it,
@@ -89,11 +121,18 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
                     filename = json.optString("filename").ifBlank { null },
                     size = json.optLong("size").takeIf { size -> size > 0 },
                     sticker = kind == "sticker",
+                    width = json.optInt("width").takeIf { it > 0 },
+                    height = json.optInt("height").takeIf { it > 0 },
+                    durationMillis = json.optLong("durationMillis").takeIf { it > 0 },
+                    waveform = json.optJSONArray("waveform")?.let { samples ->
+                        (0 until samples.length()).map { samples.optInt(it).coerceIn(0, 255) }
+                    }.orEmpty(),
                 )
             }),
             reactions = json.optJSONArray("reactions").objects().map {
                 val own = it.optBoolean("fromMe")
-                Reaction(it.getString("emoji"), if (own) "You" else it.optString("name"), own)
+                Reaction(it.getString("emoji"), it.optString("name").ifBlank { if (own) "You" else it.optString("sender").ifBlank { "Someone" } }, own,
+                    authorId = it.optString("sender").ifBlank { null })
             },
             receipt = if (fromMe) receipt(json.optString("status")) else null,
             quote = json.optString("quoteId").takeIf { it.isNotEmpty() }?.let {
@@ -101,9 +140,32 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
             },
             edited = json.optBoolean("edited"),
             deleted = json.optBoolean("deleted"),
+            pinned = json.optBoolean("pinned"),
+            albumId = json.optString("album").ifBlank { null },
             poll = json.optString("poll").takeIf { it.isNotEmpty() }?.let(::poll),
+            previews = json.optJSONArray("previews").objects().mapNotNull { preview ->
+                val url = preview.optString("url").ifBlank { null }
+                val title = preview.optString("title").ifBlank { url } ?: return@mapNotNull null
+                LinkPreview(title, preview.optString("description").ifBlank { null }, url)
+            },
             forwardedFrom = if (json.optBoolean("forwarded")) "another chat" else null,
+            spans = spans(json.optJSONArray("styles"), json.optString("text").ifBlank { null }),
         )
+    }
+
+    private fun attachment(json: JSONObject): Attachment? {
+        val kind = when (json.optString("kind")) {
+            "image", "sticker" -> AttachmentKind.IMAGE
+            "video" -> AttachmentKind.VIDEO
+            "audio" -> AttachmentKind.AUDIO
+            "document" -> AttachmentKind.FILE
+            else -> return null
+        }
+        return Attachment(json.getString("id"), kind,
+            contentType = json.optString("mime").ifBlank { null }, filename = json.optString("filename").ifBlank { null },
+            size = json.optLong("size").takeIf { it > 0 }, width = json.optInt("width").takeIf { it > 0 }, height = json.optInt("height").takeIf { it > 0 },
+            sticker = json.optBoolean("sticker"), durationMillis = json.optLong("durationMillis").takeIf { it > 0 },
+            thumbnailBase64 = json.optString("thumbnail").ifBlank { null })
     }
 
     fun contacts(encoded: String): List<Contact> = JSONArray(encoded).objects().map {
@@ -126,11 +188,16 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
     private fun poll(encoded: String): Poll {
         val json = JSONObject(encoded)
         val options = json.optJSONArray("options") ?: JSONArray()
+        val votes = json.optJSONArray("votes") ?: JSONArray()
+        val mine = json.optJSONArray("mine").let { chosen -> (0 until (chosen?.length() ?: 0)).map { chosen!!.getInt(it) }.toSet() }
         return Poll(
             question = json.optString("question"),
-            options = (0 until options.length()).map { Poll.Option(it, options.getString(it), emptyList()) },
+            options = (0 until options.length()).map { index ->
+                val voters = votes.optJSONArray(index)
+                Poll.Option(index, options.getString(index), (0 until (voters?.length() ?: 0)).map { voters!!.getString(it) }, mine = index in mine)
+            },
             multiple = json.optBoolean("multiple"),
-            closed = false,
+            closed = json.optBoolean("closed"),
         )
     }
 

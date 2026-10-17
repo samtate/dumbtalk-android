@@ -30,6 +30,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -88,7 +89,7 @@ fun InboxScreen(app: DumbTalkApp, navigator: Navigator, archived: Boolean) {
             page == null -> CenteredMessage("Loading…")
             connected?.isEmpty() == true -> NoServices(navigator)
             conversations.isEmpty() -> CenteredMessage(if (archived) "No archived chats" else "No conversations yet")
-            else -> ConversationList(conversations, focusedId, onFocus = {
+            else -> ConversationList(app, conversations, focusedId, onFocus = {
                 focusedId = it.id
                 navigator.inboxFocus[archived] = it.id
             }, onOpen = navigator::openChat)
@@ -109,6 +110,7 @@ private fun NoServices(navigator: Navigator) {
 
 @Composable
 fun ConversationList(
+    app: DumbTalkApp,
     conversations: List<Conversation>,
     focusedId: String?,
     onFocus: (Conversation) -> Unit,
@@ -118,14 +120,27 @@ fun ConversationList(
     val requester = remember { FocusRequester() }
     val initialIndex = conversations.indexOfFirst { it.id == focusedId }.coerceAtLeast(0)
     val initialId = conversations.getOrNull(initialIndex)?.id
+    val density = LocalDensity.current
     LaunchedEffect(Unit) {
-        listState.scrollToItem(initialIndex)
+        // Restore the inbox at its top. If the selected chat lives beyond the
+        // first viewport, center it so the rows above it remain visible too.
+        listState.scrollToItem(0)
         withFrameNanos { }
+        val layout = listState.layoutInfo
+        val isOnFirstPage = layout.visibleItemsInfo.any { it.index == initialIndex }
+        if (initialIndex > 0 && !isOnFirstPage) {
+            val viewportHeight = (layout.viewportEndOffset - layout.viewportStartOffset).coerceAtLeast(0)
+            val rowHeight = layout.visibleItemsInfo.firstOrNull()?.size ?: with(density) { 60.dp.roundToPx() }
+            val centerOffset = -((viewportHeight - rowHeight) / 2).coerceAtLeast(0)
+            listState.scrollToItem(initialIndex, centerOffset)
+            withFrameNanos { }
+        }
         runCatching { requester.requestFocus() }
     }
     LazyColumn(state = listState, contentPadding = PaddingValues(vertical = 3.dp), modifier = Modifier.fillMaxSize()) {
         items(conversations, key = { it.id }) { conversation ->
             ConversationRow(
+                app,
                 conversation,
                 onOpen = { onOpen(conversation) },
                 onFocus = { onFocus(conversation) },
@@ -136,7 +151,10 @@ fun ConversationList(
 }
 
 @Composable
-fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () -> Unit, focusRequester: FocusRequester? = null) {
+fun ConversationRow(app: DumbTalkApp, conversation: Conversation, onOpen: () -> Unit, onFocus: () -> Unit, focusRequester: FocusRequester? = null) {
+    val avatarPath by androidx.compose.runtime.produceState(conversation.avatarPath, conversation.id) {
+        value = runCatching { app.registry.forConversation(conversation).conversationAvatar(conversation) }.getOrNull() ?: conversation.avatarPath
+    }
     Row(
         Modifier
             .fillMaxWidth()
@@ -146,7 +164,7 @@ fun ConversationRow(conversation: Conversation, onOpen: () -> Unit, onFocus: () 
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Avatar(conversation.title, conversation.unreadCount, noteToSelf = conversation.isNoteToSelf)
+        Avatar(conversation.title, conversation.unreadCount, noteToSelf = conversation.isNoteToSelf, imagePath = avatarPath)
         Spacer(Modifier.width(9.dp))
         Column(Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -182,6 +200,12 @@ private fun previewText(conversation: Conversation) = buildAnnotatedString {
         }
         return@buildAnnotatedString
     }
+    val marker = when {
+        conversation.isMessageRequest -> "Request · "
+        conversation.isBlocked -> "Blocked · "
+        else -> null
+    }
+    marker?.let { withStyle(SpanStyle(color = Palette.unread)) { append(it) } }
     val message = conversation.lastMessage
     if (message == null) {
         append(messageSummary(null))

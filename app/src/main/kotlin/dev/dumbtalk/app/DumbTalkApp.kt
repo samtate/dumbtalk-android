@@ -1,5 +1,6 @@
 package dev.dumbtalk.app
 
+import dev.dumbtalk.app.sms.SmsService
 import dev.dumbtalk.app.media.MediaFiles
 import dev.dumbtalk.app.ui.Fonts
 import android.app.Application
@@ -56,11 +57,15 @@ open class DumbTalkApp : Application() {
                 scope,
             ),
             WhatsAppService(File(filesDir, "whatsapp"), device, scope),
+            SmsService(this).also { it.refresh() },
         )
     }
 
     override fun onCreate() {
         super.onCreate()
+        // Android launches this lightweight process for SMS delivery even when
+        // the UI is gone. Never initialize fonts/native bridges on that path.
+        if (Application.getProcessName().endsWith(":sms")) return
         Fonts.init(this, pixelFallback = usePixelFallbackFonts)
         MediaFiles.cleanOutgoing(this)
         registry = ServiceRegistry(createServices())

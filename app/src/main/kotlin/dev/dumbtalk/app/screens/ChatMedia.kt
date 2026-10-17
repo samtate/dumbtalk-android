@@ -7,6 +7,11 @@ import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.border
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,6 +19,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.size
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
@@ -73,27 +80,190 @@ private const val AUTO_LOAD_BYTES = 8L * 1024 * 1024
 
 fun Message.image() = attachments.firstOrNull { it.kind == AttachmentKind.IMAGE }
 
-/** A photo shown inside its bubble, loaded (and downloaded) in the background. */
+/** A fixed aspect slot, including while downloading, decoding or showing an error. */
 @Composable
-fun InlineImage(message: Message, maxWidth: Dp, load: suspend (Message) -> String) {
-    val attachment = message.image() ?: return
-    if ((attachment.size ?: 0) > AUTO_LOAD_BYTES) return
-    // Stickers are small, bare images; photos fill the bubble.
+fun InlineImage(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, load: suspend (Message, dev.dumbtalk.core.Attachment) -> String) {
+    InlineVisual(message, attachment, maxWidth, load, video = false)
+}
+
+@Composable
+fun InlineVideo(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp,
+    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+) {
+    InlineVisual(message, attachment, maxWidth, load, video = true, loadThumbnail = loadThumbnail)
+}
+
+/** A message's photos and videos, in the order they were sent. */
+fun Message.visuals() = attachments.filter { it.kind == AttachmentKind.IMAGE || it.kind == AttachmentKind.VIDEO }
+
+/** The narrowest (tall phone screenshots) and widest (panoramas) a single photo or video shows; beyond these it is cropped. */
+private const val TALLEST = 3f / 4f
+private const val WIDEST = 2f
+
+/** Whether the picture's own shape is known, so it can be cropped to the bubble's rather than fitted. */
+private fun knownShape(attachment: dev.dumbtalk.core.Attachment) =
+    !attachment.sticker && (attachment.width ?: 0) > 0 && (attachment.height ?: 0) > 0
+
+/** The width and height one photo or video takes in a bubble. */
+internal fun visualSize(attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, minWidth: Dp = 0.dp): Pair<Dp, Dp> {
     val maxHeight = if (attachment.sticker) 140.dp else 260.dp
-    // null while loading; a failure shows as text rather than loading forever.
-    val image by produceState<Result<ImageBitmap>?>(null, message.id) {
-        value = withContext(Dispatchers.IO) {
-            runCatching { requireNotNull(MediaFiles.thumbnail(load(message), 640)) { "not an image" }.asImageBitmap() }
+    val ratio = if ((attachment.width ?: 0) > 0 && (attachment.height ?: 0) > 0)
+        (attachment.width!!.toFloat() / attachment.height!!).let { if (attachment.sticker) it else it.coerceIn(TALLEST, WIDEST) }
+        else if (attachment.kind == AttachmentKind.VIDEO) 1.5f else 1f
+    val width = minOf(maxWidth, maxHeight * ratio)
+    // Widened for a caption: same height, cropped at the sides' expense.
+    return maxOf(width, minOf(minWidth, maxWidth)) to width / ratio
+}
+
+/** How wide a single photo or video is at least, so a long caption doesn't wrap into a narrow column. */
+internal fun captionWidth(message: Message, inner: Dp): Dp =
+    if ((message.text?.length ?: 0) > 40 && message.attachments.none { it.sticker }) inner * 0.75f else 0.dp
+
+/** The size of the collage standing in for [count] photos and videos. */
+internal fun collageSize(maxWidth: Dp, count: Int): Pair<Dp, Dp> {
+    val width = minOf(maxWidth, 260.dp)
+    return width to when (count) { 2 -> width / 2; 3 -> width * 2 / 3; else -> width }
+}
+
+/** Whether [attachment] previews without being asked for; large files wait to be opened. */
+private fun autoLoads(attachment: dev.dumbtalk.core.Attachment) =
+    (attachment.size ?: 0) <= AUTO_LOAD_BYTES || attachment.localPath != null
+
+/** A photo's or video's preview bitmap, or null while loading or when it waits to be opened. */
+@Composable
+private fun rememberPreview(message: Message, attachment: dev.dumbtalk.core.Attachment,
+    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)?,
+): Result<ImageBitmap>? {
+    val video = attachment.kind == AttachmentKind.VIDEO
+    val autoLoad = autoLoads(attachment)
+    val image by produceState<Result<ImageBitmap>?>(null, message.id, attachment.id, attachment.localPath, autoLoad) {
+        if (autoLoad) value = withContext(Dispatchers.IO) {
+            runCatching {
+                val preview = if (video) attachment.thumbnailBase64?.let(dev.dumbtalk.app.media.MediaMetadata::encodedThumbnail) else null
+                val thumbnailPath = if (video && preview == null) loadThumbnail?.invoke(message, attachment) else null
+                val bitmap = preview ?: thumbnailPath?.let { MediaFiles.thumbnail(it, 640) }
+                    ?: if (!video || (attachment.size ?: 0) <= AUTO_LOAD_BYTES) {
+                        val path = load(message, attachment)
+                        if (video) dev.dumbtalk.app.media.MediaMetadata.video(path) else MediaFiles.thumbnail(path, 640)
+                    } else null
+                requireNotNull(bitmap) { "preview unavailable" }.asImageBitmap()
+            }
         }
     }
-    val loaded = image
-    when {
-        loaded == null -> BasicText("Loading photo…", style = Type.small)
-        loaded.isFailure -> BasicText("Photo · couldn't load", style = Type.small)
-        else -> Image(
-            loaded.getOrThrow(), contentDescription = "Photo", contentScale = ContentScale.Fit,
-            modifier = Modifier.widthIn(max = maxWidth).heightIn(max = maxHeight).padding(bottom = 3.dp),
-        )
+    return image
+}
+
+/** A preview filling [width] × [height]: the picture, or what's happening instead, with a play mark on videos. */
+@Composable
+private fun PreviewBox(message: Message, attachment: dev.dumbtalk.core.Attachment, width: Dp, height: Dp,
+    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)?,
+    scale: ContentScale, compact: Boolean = false, content: @Composable () -> Unit = {},
+) {
+    val video = attachment.kind == AttachmentKind.VIDEO
+    val image = rememberPreview(message, attachment, load, loadThumbnail)
+    val alpha by androidx.compose.animation.core.animateFloatAsState(if (image?.isSuccess == true) 1f else 0f, label = "media reveal")
+    Box(Modifier.width(width).height(height).background(Palette.panel), contentAlignment = Alignment.Center) {
+        val loaded = image?.getOrNull()
+        if (loaded != null) Image(loaded, contentDescription = if (video) "Video thumbnail" else "Photo", contentScale = scale,
+            modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha })
+        else if (!compact) BasicText(when {
+            !autoLoads(attachment) -> if (video) "Play to load video" else "View to load photo"
+            image?.isFailure == true -> "Preview unavailable"
+            else -> if (video) "Loading video…" else "Loading photo…"
+        }, style = Type.small, modifier = Modifier.padding(6.dp))
+        if (video) Box(Modifier.size(if (compact) 26.dp else 36.dp).background(Palette.background.copy(alpha = 0.8f)), contentAlignment = Alignment.Center) {
+            Icon(AppIcon.PLAY, size = if (compact) 18.dp else 24.dp)
+        }
+        content()
+    }
+}
+
+@Composable
+private fun InlineVisual(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp,
+    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String, video: Boolean,
+    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)? = null,
+) {
+    val (width, height) = visualSize(attachment, maxWidth, captionWidth(message, maxWidth))
+    val widened = width > visualSize(attachment, maxWidth).first
+    PreviewBox(message, attachment, width, height, load, loadThumbnail.takeIf { video }, if (knownShape(attachment) || widened) ContentScale.Crop else ContentScale.Fit)
+}
+
+/**
+ * Several photos and videos as one picture: two side by side, three as one
+ * large and two small, four or more as a grid of four whose last shows how
+ * many more there are. Opening it shows them all.
+ */
+@Composable
+fun MediaCollage(message: Message, visuals: List<dev.dumbtalk.core.Attachment>, maxWidth: Dp,
+    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+) {
+    val gap = 2.dp
+    val (width, height) = collageSize(maxWidth, visuals.size)
+    val half = (width - gap) / 2
+    @Composable
+    fun Tile(index: Int, tileWidth: Dp, tileHeight: Dp) {
+        val more = visuals.size - 3
+        PreviewBox(message, visuals[index], tileWidth, tileHeight, load, loadThumbnail, ContentScale.Crop, compact = true) {
+            if (index == 3 && visuals.size > 4) {
+                Box(Modifier.fillMaxSize().background(Palette.background.copy(alpha = 0.6f)), contentAlignment = Alignment.Center) {
+                    BasicText("+$more", style = Type.title.copy(color = Palette.text, fontSize = 28.sp, lineHeight = 32.sp))
+                }
+            }
+        }
+    }
+    val spaced = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)
+    Box(Modifier.width(width).height(height).semantics { contentDescription = "${visuals.size} photos and videos" }) {
+        when (visuals.size) {
+            2 -> Row(horizontalArrangement = spaced) { Tile(0, half, height); Tile(1, half, height) }
+            3 -> Row(horizontalArrangement = spaced) {
+                Tile(0, half, height)
+                Column(verticalArrangement = spaced) { Tile(1, half, (height - gap) / 2); Tile(2, half, (height - gap) / 2) }
+            }
+            else -> Column(verticalArrangement = spaced) {
+                val row = (height - gap) / 2
+                Row(horizontalArrangement = spaced) { Tile(0, half, row); Tile(1, half, row) }
+                Row(horizontalArrangement = spaced) { Tile(2, half, row); Tile(3, half, row) }
+            }
+        }
+    }
+}
+
+/** Pixel columns show actual amplitudes; elapsed time and colour follow playback. */
+@Composable
+fun InlineAudio(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, load: suspend (Message, dev.dumbtalk.core.Attachment) -> String) {
+    val metadata by produceState<dev.dumbtalk.app.media.MediaMetadata.Audio?>(null, message.id, attachment.id) {
+        if ((attachment.size ?: 0) <= AUTO_LOAD_BYTES || attachment.localPath != null) {
+            value = withContext(Dispatchers.IO) { runCatching { dev.dumbtalk.app.media.MediaMetadata.audio(load(message, attachment)) }.getOrNull() }
+        }
+    }
+    val playing = AudioPlayer.playing == message.id
+    var elapsed by remember(message.id) { mutableLongStateOf(0L) }
+    LaunchedEffect(playing) {
+        elapsed = 0
+        while (playing) { elapsed = AudioPlayer.positionMillis; delay(100) }
+    }
+    val duration = attachment.durationMillis ?: metadata?.duration?.takeIf { it > 0 } ?: if (playing) AudioPlayer.durationMillis else 0L
+    val samples = attachment.waveform.ifEmpty { metadata?.peaks.orEmpty() }
+    val progress = if (duration > 0 && playing) (elapsed.toFloat() / duration).coerceIn(0f, 1f) else 0f
+    androidx.compose.foundation.layout.Row(Modifier.width(minOf(maxWidth, 230.dp)).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+        Icon(if (playing) AppIcon.STOP else AppIcon.PLAY, size = 20.dp)
+        androidx.compose.foundation.Canvas(Modifier.weight(1f).height(32.dp).padding(horizontal = 6.dp)) {
+            val columns = 32
+            val pitch = size.width / columns
+            val unit = 3.dp.toPx()
+            for (i in 0 until columns) {
+                val sample = samples.getOrNull(i * samples.size / columns) ?: 0
+                val blocks = (1 + sample * 7 / 255).coerceIn(1, 8)
+                val top = (size.height - blocks * unit) / 2
+                val color = if (i.toFloat() / columns < progress) Palette.send else Palette.muted
+                repeat(blocks) { j -> drawRect(color, androidx.compose.ui.geometry.Offset(i * pitch, top + j * unit), androidx.compose.ui.geometry.Size((pitch - 1.dp.toPx()).coerceAtLeast(1f), unit - 1.dp.toPx())) }
+            }
+        }
+        BasicText(if (playing) clock(elapsed) else if (duration > 0) clock(duration) else "–:––", style = Type.small)
     }
 }
 
@@ -101,7 +271,7 @@ fun InlineImage(message: Message, maxWidth: Dp, load: suspend (Message) -> Strin
 @Composable
 fun MediaOverlays(controller: MediaController, caption: String?) {
     when (val overlay = controller.overlay) {
-        is MediaOverlay.Photo -> ImageViewer(overlay.path, controller::closeOverlay)
+        is MediaOverlay.Photo -> ImageViewer(overlay.path, controller::closeOverlay, overlay.attachments.size, overlay.index, { controller.nextPhoto(overlay) }, { controller.previousPhoto(overlay) })
         is MediaOverlay.Video -> VideoViewer(overlay.path, controller::closeOverlay)
         MediaOverlay.Attach -> AttachPanel(controller, caption)
         MediaOverlay.Voice -> VoicePanel(controller)
@@ -112,10 +282,11 @@ fun MediaOverlays(controller: MediaController, caption: String?) {
 /**
  * A photo filling the screen. Centre toggles Fit and Zoom; zooming fits the
  * photo to the screen's width (tall pictures) or height (wide ones) and the
- * D-pad pans along the other axis.
+ * D-pad pans along the other axis. Unzoomed, Left and Right move between an
+ * album's photos.
  */
 @Composable
-fun ImageViewer(path: String, onClose: () -> Unit) {
+fun ImageViewer(path: String, onClose: () -> Unit, photoCount: Int = 1, photoIndex: Int = 0, onNext: () -> Unit = {}, onPrevious: () -> Unit = {}) {
     var zoomed by remember { mutableStateOf(false) }
     var viewport by remember { mutableStateOf(IntSize.Zero) }
     val scroll = rememberScrollState()
@@ -124,6 +295,7 @@ fun ImageViewer(path: String, onClose: () -> Unit) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
     LaunchedEffect(zoomed) { scroll.scrollTo(0) }
+    LaunchedEffect(path) { zoomed = false }
     val bitmap by produceState<ImageBitmap?>(null, path) {
         value = withContext(Dispatchers.IO) { MediaFiles.thumbnail(path, 2048)?.asImageBitmap() }
     }
@@ -131,9 +303,10 @@ fun ImageViewer(path: String, onClose: () -> Unit) {
     // A picture taller than the screen zooms to its width and pans vertically; otherwise to its height.
     val vertical = viewport.height > 0 && aspect < viewport.width.toFloat() / viewport.height
 
-    Softkeys(center = SoftkeyAction(if (zoomed) "Fit" else "Zoom") { zoomed = !zoomed }, right = SoftkeyAction("Back", onClose))
+    Softkeys(left = if (photoCount > 1) SoftkeyAction("Next") { onNext() } else null,
+        center = SoftkeyAction(if (zoomed) "Fit" else "Zoom") { zoomed = !zoomed }, right = SoftkeyAction("Back", onClose))
     Column(Modifier.fillMaxSize()) {
-        Header("Photo", trailing = { BasicText(if (!zoomed) "Fit" else if (vertical) "Width" else "Height", style = Type.small) })
+        Header(if (photoCount > 1) "Photo ${photoIndex + 1}/$photoCount" else "Photo", trailing = { BasicText(if (!zoomed) "Fit" else if (vertical) "Width" else "Height", style = Type.small) })
         Box(
             Modifier
                 .weight(1f)
@@ -141,7 +314,16 @@ fun ImageViewer(path: String, onClose: () -> Unit) {
                 .onSizeChanged { viewport = it }
                 .focusRequester(requester)
                 .onPreviewKeyEvent { event ->
-                    if (!zoomed || event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    if (event.type != KeyEventType.KeyDown) return@onPreviewKeyEvent false
+                    if (!zoomed) {
+                        if (photoCount < 2) return@onPreviewKeyEvent false
+                        when (event.key) {
+                            Key.DirectionRight -> onNext()
+                            Key.DirectionLeft -> onPrevious()
+                            else -> return@onPreviewKeyEvent false
+                        }
+                        return@onPreviewKeyEvent true
+                    }
                     val step = (if (vertical) viewport.height else viewport.width) * 0.72f
                     val delta = when (event.key) {
                         Key.DirectionDown -> step.takeIf { vertical }
@@ -208,27 +390,28 @@ fun VideoViewer(path: String, onClose: () -> Unit) {
  * the message box goes with it as the caption.
  */
 @Composable
-fun AttachPanel(controller: MediaController, caption: String?) {
+fun AttachPanel(controller: MediaController, caption: String?, onType: () -> Unit = {}) {
     val picked = controller.picked
-    val choose = remember { FocusRequester() }
-    val send = remember { FocusRequester() }
-    LaunchedEffect(picked != null) { runCatching { (if (picked != null) send else choose).requestFocus() } }
-    Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Cancel", controller::closeOverlay))
-    Column(Modifier.fillMaxSize()) {
+    val first = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
+    Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Done", controller::closeOverlay))
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         Header("Send attachment")
-        val info = picked?.let { File(it.path).let { file -> "${file.name} · ${formatSize(file.length())}" } }
-        BasicText(
-            info ?: "Choose a saved item or take a photo.",
-            style = Type.preview.copy(color = Palette.text),
-            modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp),
-        )
-        if (picked != null && !caption.isNullOrBlank()) {
-            BasicText("Your message will be the caption.", style = Type.small, modifier = Modifier.padding(horizontal = 9.dp, vertical = 2.dp))
+        BasicText(if (controller.picking) "Preparing attachments…" else if (picked.isEmpty()) "Choose a saved item or take a photo." else "${picked.size}/10 attached · add text in the message box.",
+            style = Type.small, modifier = Modifier.padding(6.dp))
+        picked.forEachIndexed { index, file ->
+            ListButton("Remove ${File(file.path).name}", { controller.removePicked(index) }, leading = { Icon(AppIcon.DELETE) })
         }
-        ListButton(if (picked != null) "Choose another" else "Choose file", controller::chooseFile, focusRequester = choose, leading = { Icon(AppIcon.ATTACH, size = 18.dp) })
-        ListButton("Take photo", controller::takePhoto, leading = { Icon(AppIcon.COMPOSE, size = 18.dp) })
-        if (picked != null) ListButton("Send", controller::sendPicked, focusRequester = send)
-        ListButton("Cancel", controller::closeOverlay)
+        MenuGrid(buildList {
+            if (picked.size < 10 && !controller.picking) {
+                add(MenuItem("Choose file", AppIcon.ATTACH, controller::chooseFile))
+                add(MenuItem("Take photo", AppIcon.CAMERA, controller::takePhoto))
+            }
+            add(MenuItem("Add text", AppIcon.COMPOSE, onType))
+            if (picked.isNotEmpty() && !controller.picking) add(MenuItem("Send", AppIcon.SEND, controller::sendPicked))
+            add(MenuItem("Done", AppIcon.CLOSE, controller::closeOverlay))
+        }, first)
+        if (!caption.isNullOrBlank()) BasicText("Caption: $caption", style = Type.small, modifier = Modifier.padding(6.dp))
     }
 }
 
@@ -249,10 +432,13 @@ fun VoicePanel(controller: MediaController) {
         },
         right = SoftkeyAction("Cancel", controller::cancelVoice),
     )
-    Column(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxWidth().verticalScroll(rememberScrollState())) {
         Header("Voice note")
         when (stage) {
-            VoiceStage.READY -> CenteredMessage("Press Record, speak, then Stop. You can listen before sending.")
+            VoiceStage.READY -> {
+                CenteredMessage("Press Record, speak, then Stop. You can listen before sending.")
+                MenuGrid(listOf(MenuItem("Record", AppIcon.MIC, controller::record), MenuItem("Cancel", AppIcon.CLOSE, controller::cancelVoice)))
+            }
             VoiceStage.RECORDING -> {
                 var elapsed by remember { mutableLongStateOf(0L) }
                 val recorder = controller.recorder
@@ -262,11 +448,12 @@ fun VoicePanel(controller: MediaController) {
                         delay(250)
                     }
                 }
-                Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().padding(12.dp), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         BasicText("● REC", style = Type.header.copy(color = Palette.error))
                         BasicText(clock(elapsed), style = Type.title.copy(fontSize = 32.sp, lineHeight = 36.sp), modifier = Modifier.padding(vertical = 12.dp))
                         BasicText("Centre to stop", style = Type.small)
+                        MenuGrid(listOf(MenuItem("Stop", AppIcon.STOP, controller::stopRecording)))
                     }
                 }
             }
@@ -275,10 +462,12 @@ fun VoicePanel(controller: MediaController) {
                 LaunchedEffect(Unit) { runCatching { first.requestFocus() } }
                 val duration = controller.recording?.second ?: 0
                 BasicText("Recorded ${clock(duration)}", style = Type.preview.copy(color = Palette.text), modifier = Modifier.padding(horizontal = 9.dp, vertical = 6.dp))
-                ListButton(if (AudioPlayer.playing == MediaController.DRAFT_ID) "Stop" else "Play", controller::toggleReview, focusRequester = first, leading = { Icon(AppIcon.MIC, size = 18.dp) })
-                ListButton("Send", controller::sendVoice)
-                ListButton("Record again", controller::record)
-                ListButton("Discard", controller::cancelVoice)
+                MenuGrid(listOf(
+                    MenuItem(if (AudioPlayer.playing == MediaController.DRAFT_ID) "Stop" else "Play", if (AudioPlayer.playing == MediaController.DRAFT_ID) AppIcon.STOP else AppIcon.PLAY, controller::toggleReview),
+                    MenuItem("Send", AppIcon.SEND, controller::sendVoice),
+                    MenuItem("Record again", AppIcon.MIC, controller::record),
+                    MenuItem("Discard", AppIcon.DELETE, controller::cancelVoice),
+                ), first)
             }
         }
     }

@@ -151,3 +151,61 @@ fun NewNumberScreen(app: DumbTalkApp, navigator: Navigator) {
         }
     }
 }
+
+/** A new group: pick the service (if several), the people, then a name. */
+@Composable
+fun NewGroupScreen(app: DumbTalkApp, navigator: Navigator) {
+    val scope = rememberCoroutineScope()
+    var chosen by remember { mutableStateOf<MessagingService?>(null) }
+    var people by remember { mutableStateOf<List<Contact>?>(null) }
+    var error by remember { mutableStateOf<String?>(null) }
+    var busy by remember { mutableStateOf(false) }
+    val services by produceState<List<MessagingService>?>(null) {
+        value = app.registry.connected().filter { runCatching { it.capabilities().groups }.getOrDefault(false) }
+    }
+    val service = chosen ?: services?.singleOrNull()
+    val members = people
+    when {
+        services == null -> {
+            Softkeys(right = SoftkeyAction("Back") { navigator.pop() })
+            Column(Modifier.fillMaxSize()) { Header("New group"); CenteredMessage("Loading…") }
+        }
+        service == null -> {
+            val requester = remember { FocusRequester() }
+            LaunchedEffect(services) { runCatching { requester.requestFocus() } }
+            Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Back") { navigator.pop() })
+            Column(Modifier.fillMaxSize()) {
+                Header("New group")
+                if (services!!.isEmpty()) CenteredMessage("No connected service can make groups.")
+                else {
+                    BasicText("Make the group on", style = Type.section, modifier = Modifier.padding(9.dp))
+                    services!!.forEachIndexed { index, item ->
+                        ListButton(item.label, { chosen = item }, leading = { ServiceIcon(item.id, 22.dp) }, focusRequester = if (index == 0) requester else null)
+                    }
+                }
+            }
+        }
+        members == null -> ContactPicker(
+            "New ${service.label} group", service, "Next",
+            onDone = { people = it },
+            onClose = { if (chosen != null && services!!.size > 1) chosen = null else navigator.pop() },
+        )
+        else -> NameInput(
+                "Name the group", "", if (busy) "Creating…" else "Create",
+                onSave = { name ->
+                    if (!busy) {
+                        busy = true
+                        error = null
+                        scope.launch {
+                            runCatching { service.createGroup(name, members.map { it.id }) }
+                                .onSuccess { navigator.popToRoot(); navigator.openChat(it) }
+                                .onFailure { error = it.message ?: "Couldn't create the group" }
+                            busy = false
+                        }
+                    }
+                },
+                onClose = { people = null },
+                problem = error,
+            )
+    }
+}

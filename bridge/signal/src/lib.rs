@@ -24,8 +24,10 @@ pub extern "system" fn Java_dev_dumbtalk_signal_SignalNative_init<'caller>(
     _class: jni::objects::JClass<'caller>,
     context: jni::objects::JObject<'caller>,
 ) {
-    env.with_env(|env| -> Result<(), jni::errors::Error> { rustls_platform_verifier::android::init_with_env(env, context) })
-        .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
+    env.with_env(|env| -> Result<(), jni::errors::Error> {
+        rustls_platform_verifier::android::init_with_env(env, context)
+    })
+    .resolve::<jni::errors::ThrowRuntimeExAndDefault>();
 }
 
 /// Events: "status", "chats", "messages" {chat}, "incoming" {chat,id},
@@ -59,21 +61,113 @@ pub(crate) enum Command {
     StartLink(Reply),
     Connect(Reply),
     Logout(Reply),
-    Chats { archived: bool, reply: Reply },
-    Chat { chat: String, reply: Reply },
-    Messages { chat: String, before_ts: i64, before_id: String, limit: i64, reply: Reply },
-    Search { query: String, reply: Reply },
-    SendText { chat: String, text: String, quote_id: String, reply: Reply },
-    React { chat: String, id: String, emoji: String, remove: bool, reply: Reply },
-    Edit { chat: String, id: String, text: String, reply: Reply },
-    Delete { chat: String, id: String, reply: Reply },
-    MarkRead { chat: String, reply: Reply },
-    SetTyping { chat: String, active: bool, reply: Reply },
-    SetFlag { chat: String, flag: &'static str, value: bool, reply: Reply },
-    ResolvePhone { phone: String, reply: Reply },
+    Chats {
+        archived: bool,
+        reply: Reply,
+    },
+    Chat {
+        chat: String,
+        reply: Reply,
+    },
+    Messages {
+        chat: String,
+        before_ts: i64,
+        before_id: String,
+        limit: i64,
+        reply: Reply,
+    },
+    PinnedMessages { chat: String, reply: Reply },
+    PinMessage { chat: String, id: String, pinned: bool, reply: Reply },
+    CreatePoll { chat: String, question: String, options_json: String, multiple: bool, reply: Reply },
+    VotePoll { chat: String, id: String, options_json: String, reply: Reply },
+    ClosePoll { chat: String, id: String, reply: Reply },
+    Search {
+        query: String,
+        reply: Reply,
+    },
+    SendText {
+        chat: String,
+        text: String,
+        quote_id: String,
+        spans_json: String,
+        reply: Reply,
+    },
+    SetExpireTimer { chat: String, seconds: u32, reply: Reply },
+    RespondRequest { chat: String, action: String, reply: Reply },
+    Members { chat: String, reply: Reply },
+    CreateGroup { name: String, members_json: String, reply: Reply },
+    RenameGroup { chat: String, name: String, reply: Reply },
+    AddMembers { chat: String, members_json: String, reply: Reply },
+    RemoveMember { chat: String, member: String, reply: Reply },
+    LeaveGroup { chat: String, reply: Reply },
+    React {
+        chat: String,
+        id: String,
+        emoji: String,
+        remove: bool,
+        reply: Reply,
+    },
+    Edit {
+        chat: String,
+        id: String,
+        text: String,
+        reply: Reply,
+    },
+    Delete {
+        chat: String,
+        id: String,
+        reply: Reply,
+    },
+    MarkRead {
+        chat: String,
+        reply: Reply,
+    },
+    SetTyping {
+        chat: String,
+        active: bool,
+        reply: Reply,
+    },
+    SetFlag {
+        chat: String,
+        flag: &'static str,
+        value: bool,
+        reply: Reply,
+    },
+    ResolvePhone {
+        phone: String,
+        reply: Reply,
+    },
     Contacts(Reply),
-    DownloadMedia { chat: String, id: String, reply: Reply },
-    SendMedia { chat: String, path: String, mime: String, caption: String, voice_note: bool, reply: Reply },
+    ConversationAvatar {
+        chat: String,
+        reply: Reply,
+    },
+    DownloadAttachment {
+        chat: String,
+        id: String,
+        index: u32,
+        reply: Reply,
+    },
+    SendMediaBatch {
+        chat: String,
+        files: String,
+        caption: String,
+        quote_id: String,
+        reply: Reply,
+    },
+    DownloadMedia {
+        chat: String,
+        id: String,
+        reply: Reply,
+    },
+    SendMedia {
+        chat: String,
+        path: String,
+        mime: String,
+        caption: String,
+        voice_note: bool,
+        reply: Reply,
+    },
 }
 
 #[derive(uniffi::Object)]
@@ -84,8 +178,11 @@ pub struct SignalClient {
 impl SignalClient {
     fn call(&self, make: impl FnOnce(Reply) -> Command) -> Result<String, BridgeError> {
         let (tx, rx) = oneshot::channel();
-        self.commands.send(make(tx)).map_err(|_| BridgeError::new("Signal stopped"))?;
-        rx.blocking_recv().map_err(|_| BridgeError::new("Signal stopped"))?
+        self.commands
+            .send(make(tx))
+            .map_err(|_| BridgeError::new("Signal stopped"))?;
+        rx.blocking_recv()
+            .map_err(|_| BridgeError::new("Signal stopped"))?
     }
 
     fn unit(&self, make: impl FnOnce(Reply) -> Command) -> Result<(), BridgeError> {
@@ -97,19 +194,27 @@ impl SignalClient {
 impl SignalClient {
     /// Opens (or creates) the Signal databases in `dir` and starts the engine thread.
     #[uniffi::constructor]
-    pub fn new(dir: String, device_name: String, listener: Box<dyn Listener>) -> Result<Arc<Self>, BridgeError> {
+    pub fn new(
+        dir: String,
+        device_name: String,
+        listener: Box<dyn Listener>,
+    ) -> Result<Arc<Self>, BridgeError> {
         let (commands, receiver) = mpsc::unbounded_channel();
         let (ready_tx, ready_rx) = std::sync::mpsc::channel();
         thread::Builder::new()
             .name("signal".into())
             .spawn(move || engine::run(dir, device_name, Arc::from(listener), receiver, ready_tx))
             .map_err(BridgeError::new)?;
-        ready_rx.recv().map_err(|_| BridgeError::new("Signal failed to start"))??;
+        ready_rx
+            .recv()
+            .map_err(|_| BridgeError::new("Signal failed to start"))??;
         Ok(Arc::new(SignalClient { commands }))
     }
 
     pub fn is_linked(&self) -> bool {
-        self.call(Command::IsLinked).map(|v| v == "true").unwrap_or(false)
+        self.call(Command::IsLinked)
+            .map(|v| v == "true")
+            .unwrap_or(false)
     }
 
     /// {"phone","name","online"}
@@ -139,24 +244,127 @@ impl SignalClient {
         self.call(|reply| Command::Chat { chat, reply })
     }
 
-    pub fn messages_json(&self, chat: String, before_ts: i64, before_id: String, limit: i64) -> Result<String, BridgeError> {
-        self.call(|reply| Command::Messages { chat, before_ts, before_id, limit, reply })
+    pub fn messages_json(
+        &self,
+        chat: String,
+        before_ts: i64,
+        before_id: String,
+        limit: i64,
+    ) -> Result<String, BridgeError> {
+        self.call(|reply| Command::Messages {
+            chat,
+            before_ts,
+            before_id,
+            limit,
+            reply,
+        })
+    }
+
+    pub fn pinned_messages_json(&self, chat: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::PinnedMessages { chat, reply })
+    }
+
+    pub fn pin_message(&self, chat: String, id: String, pinned: bool) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::PinMessage { chat, id, pinned, reply })
+    }
+
+    /// `options_json` is a JSON array of option names; returns the sent message.
+    pub fn create_poll(&self, chat: String, question: String, options_json: String, multiple: bool) -> Result<String, BridgeError> {
+        self.call(|reply| Command::CreatePoll { chat, question, options_json, multiple, reply })
+    }
+
+    /// `options_json` is a JSON array of option indexes.
+    pub fn vote_poll(&self, chat: String, id: String, options_json: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::VotePoll { chat, id, options_json, reply })
+    }
+
+    pub fn close_poll(&self, chat: String, id: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::ClosePoll { chat, id, reply })
     }
 
     pub fn search_json(&self, query: String) -> Result<String, BridgeError> {
         self.call(|reply| Command::Search { query, reply })
     }
 
-    pub fn send_text(&self, chat: String, text: String, quote_id: String) -> Result<String, BridgeError> {
-        self.call(|reply| Command::SendText { chat, text, quote_id, reply })
+    /// `spans_json`: mentions ({start, length, style: "mention", id: ACI})
+    /// and styles over `text` in UTF-16 units, or "" for none.
+    pub fn send_text(
+        &self,
+        chat: String,
+        text: String,
+        quote_id: String,
+        spans_json: String,
+    ) -> Result<String, BridgeError> {
+        self.call(|reply| Command::SendText {
+            chat,
+            text,
+            quote_id,
+            spans_json,
+            reply,
+        })
     }
 
-    pub fn react(&self, chat: String, id: String, emoji: String, remove: bool) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::React { chat, id, emoji, remove, reply })
+    /// Sets a chat's disappearing-message timer in seconds; 0 turns it off.
+    pub fn set_expire_timer(&self, chat: String, seconds: u32) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::SetExpireTimer { chat, seconds, reply })
+    }
+
+    /// Answers a message request: "accept", "block", "unblock" or "delete".
+    pub fn respond_request(&self, chat: String, action: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::RespondRequest { chat, action, reply })
+    }
+
+    /// The chat's people other than us: [{"id": ACI, "name", "admin"}], by name.
+    pub fn members_json(&self, chat: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::Members { chat, reply })
+    }
+
+    /// Creates a group with the chat ids in `members_json`; returns its chat id.
+    pub fn create_group(&self, name: String, members_json: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::CreateGroup { name, members_json, reply })
+    }
+
+    pub fn rename_group(&self, chat: String, name: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::RenameGroup { chat, name, reply })
+    }
+
+    /// Adds the chat ids (people) in `members_json` to a group.
+    pub fn add_members(&self, chat: String, members_json: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::AddMembers { chat, members_json, reply })
+    }
+
+    /// Removes a member (by ACI) from a group.
+    pub fn remove_member(&self, chat: String, member: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::RemoveMember { chat, member, reply })
+    }
+
+    pub fn leave_group(&self, chat: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::LeaveGroup { chat, reply })
+    }
+
+    pub fn react(
+        &self,
+        chat: String,
+        id: String,
+        emoji: String,
+        remove: bool,
+    ) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::React {
+            chat,
+            id,
+            emoji,
+            remove,
+            reply,
+        })
     }
 
     pub fn edit(&self, chat: String, id: String, text: String) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::Edit { chat, id, text, reply })
+        self.unit(|reply| Command::Edit {
+            chat,
+            id,
+            text,
+            reply,
+        })
     }
 
     pub fn delete(&self, chat: String, id: String) -> Result<(), BridgeError> {
@@ -168,20 +376,39 @@ impl SignalClient {
     }
 
     pub fn set_typing(&self, chat: String, active: bool) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::SetTyping { chat, active, reply })
+        self.unit(|reply| Command::SetTyping {
+            chat,
+            active,
+            reply,
+        })
     }
 
     /// Local only: presage doesn't sync Signal's storage service yet.
     pub fn set_archived(&self, chat: String, value: bool) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::SetFlag { chat, flag: "archived", value, reply })
+        self.unit(|reply| Command::SetFlag {
+            chat,
+            flag: "archived",
+            value,
+            reply,
+        })
     }
 
     pub fn set_pinned(&self, chat: String, value: bool) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::SetFlag { chat, flag: "pinned", value, reply })
+        self.unit(|reply| Command::SetFlag {
+            chat,
+            flag: "pinned",
+            value,
+            reply,
+        })
     }
 
     pub fn set_muted(&self, chat: String, value: bool) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::SetFlag { chat, flag: "muted", value, reply })
+        self.unit(|reply| Command::SetFlag {
+            chat,
+            flag: "muted",
+            value,
+            reply,
+        })
     }
 
     /// Saved contacts from the main phone: [{"id","name"}], sorted by name.
@@ -189,14 +416,63 @@ impl SignalClient {
         self.call(Command::Contacts)
     }
 
+    /// Fetches a contact or group avatar and returns a cached local path, or empty if absent.
+    pub fn conversation_avatar(&self, chat: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::ConversationAvatar { chat, reply })
+    }
+
     /// Downloads (once) a received attachment; returns its local path.
     pub fn download_media(&self, chat: String, id: String) -> Result<String, BridgeError> {
         self.call(|reply| Command::DownloadMedia { chat, id, reply })
     }
 
+    pub fn download_attachment(
+        &self,
+        chat: String,
+        id: String,
+        index: u32,
+    ) -> Result<String, BridgeError> {
+        self.call(|reply| Command::DownloadAttachment {
+            chat,
+            id,
+            index,
+            reply,
+        })
+    }
+
+    pub fn send_media_batch(
+        &self,
+        chat: String,
+        files: String,
+        caption: String,
+        quote_id: String,
+    ) -> Result<String, BridgeError> {
+        self.call(|reply| Command::SendMediaBatch {
+            chat,
+            files,
+            caption,
+            quote_id,
+            reply,
+        })
+    }
+
     /// Sends a file (photo, video, audio or document by MIME type); returns the message JSON.
-    pub fn send_media(&self, chat: String, path: String, mime: String, caption: String, voice_note: bool) -> Result<String, BridgeError> {
-        self.call(|reply| Command::SendMedia { chat, path, mime, caption, voice_note, reply })
+    pub fn send_media(
+        &self,
+        chat: String,
+        path: String,
+        mime: String,
+        caption: String,
+        voice_note: bool,
+    ) -> Result<String, BridgeError> {
+        self.call(|reply| Command::SendMedia {
+            chat,
+            path,
+            mime,
+            caption,
+            voice_note,
+            reply,
+        })
     }
 
     /// Finds the Signal account for a phone number; returns its chat id.

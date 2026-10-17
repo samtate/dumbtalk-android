@@ -7,7 +7,10 @@ import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ConversationUpdate
+import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.TextSpan
+import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.MessagePage
 import dev.dumbtalk.core.MessagingService
 import dev.dumbtalk.core.SearchResult
@@ -17,6 +20,8 @@ import dev.dumbtalk.core.ServiceStatus
 import dev.dumbtalk.core.SetupStep
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -60,9 +65,15 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
 
     internal val chats = ConcurrentHashMap<Long, TdApi.Chat>()
     internal val users = ConcurrentHashMap<Long, TdApi.User>()
+    /** Our membership of each group, for whether we may change it. */
+    private val basicGroups = ConcurrentHashMap<Long, TdApi.BasicGroup>()
+    private val supergroups = ConcurrentHashMap<Long, TdApi.Supergroup>()
     /** chat id → sender id → when the typing notice lapses (ms). */
     private val typing = ConcurrentHashMap<Long, ConcurrentHashMap<Long, Long>>()
     private val mapper = TelegramMapper(this)
+    private val reactionCache = android.util.LruCache<String, Pair<String, List<Reaction>>>(128)
+    private val pendingReactions = ConcurrentHashMap.newKeySet<String>()
+    private val reactionRequests = Semaphore(3)
 
     private val databaseDir = File(config.dataDir, "db")
     private val credentialsFile = File(config.dataDir, "credentials.properties")
@@ -132,6 +143,14 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         when (update) {
             is TdApi.UpdateAuthorizationState -> onAuthorizationState(update.authorizationState)
             is TdApi.UpdateUser -> users[update.user.id] = update.user
+            is TdApi.UpdateBasicGroup -> basicGroups[update.basicGroup.id] = update.basicGroup
+            is TdApi.UpdateSupergroup -> supergroups[update.supergroup.id] = update.supergroup
+            is TdApi.UpdateChatActionBar -> chat(update.chatId) { actionBar = update.actionBar }
+            is TdApi.UpdateChatBlockList -> chat(update.chatId) { blockList = update.blockList }
+            is TdApi.UpdateChatMessageAutoDeleteTime -> {
+                chat(update.chatId) { messageAutoDeleteTime = update.messageAutoDeleteTime }
+                messagesChanged(update.chatId)
+            }
             is TdApi.UpdateNewChat -> {
                 chats[update.chat.id] = update.chat
                 conversationsChanged()
@@ -183,6 +202,8 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
                 chatListsLoaded = null
                 chats.clear()
                 users.clear()
+                basicGroups.clear()
+                supergroups.clear()
                 typing.clear()
                 mutableEvents.tryEmit(ServiceEvent.StatusChanged(id))
                 conversationsChanged()
@@ -255,11 +276,20 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         edits = true,
         deletes = true,
         pins = true,
+        polls = true,
+        closingPolls = true,
         search = true,
         compose = true,
         muting = true,
         attachments = true,
         voiceNotes = true,
+        mentions = true,
+        disappearingMessages = true,
+        // Telegram's auto-delete choices: a day, a week, a month.
+        disappearingDurations = listOf(86_400, 604_800, 2_678_400),
+        messageRequests = true,
+        blocking = true,
+        groups = true,
     )
 
     override suspend fun beginSetup(): SetupStep {
@@ -389,6 +419,32 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         return ConversationPage(all.filter { it.isArchived == archived }, all.count { it.isArchived })
     }
 
+    override suspend fun conversationAvatar(conversation: Conversation): String? {
+        val chat = chats[chatId(conversation)] ?: return null
+        val photo = synchronized(chat) { chat.photo?.small } ?: return null
+        photo.local.path.takeIf { photo.local.isDownloadingCompleted && it.isNotBlank() }?.let { return it }
+        return runCatching {
+            val downloaded = requireClient().send(TdApi.DownloadFile(photo.id, 1, 0, 0, true))
+            downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
+        }.getOrNull()
+    }
+
+    /** Reactors are "user:<id>" or "chat:<id>", as [TelegramMapper.reactor] keys them. */
+    override suspend fun personAvatar(personId: String): String? {
+        val (kind, raw) = personId.split(':', limit = 2).takeIf { it.size == 2 } ?: return null
+        val id = raw.toLongOrNull() ?: return null
+        val photo = when (kind) {
+            "user" -> (users[id] ?: runCatching { requireClient().send(TdApi.GetUser(id)) }.getOrNull()?.also { users[id] = it })?.profilePhoto?.small
+            "chat" -> chats[id]?.let { synchronized(it) { it.photo?.small } }
+            else -> null
+        } ?: return null
+        photo.local.path.takeIf { photo.local.isDownloadingCompleted && it.isNotBlank() }?.let { return it }
+        return runCatching {
+            val downloaded = requireClient().send(TdApi.DownloadFile(photo.id, 1, 0, 0, true))
+            downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
+        }.getOrNull()
+    }
+
     private fun inMainList(conversation: Conversation): Boolean =
         chats[conversation.remoteId.toLong()]?.positions?.any { it.list is TdApi.ChatListMain && it.order != 0L } == true
 
@@ -407,8 +463,54 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             from = page.last().id
         }
         val replies = resolveReplies(chat.id, collected)
-        val messages = collected.asReversed().map { synchronized(chat) { mapper.message(chat, it, replies) } }
+        val messages = collected.asReversed().map { source ->
+            val mapped = synchronized(chat) { mapper.message(chat, source, replies) }
+            withReactionPeople(chat.id, source, mapped)
+        }
         return MessagePage(messages = messages, hasMore = collected.isNotEmpty(), typingNames = typingNames(chat.id))
+    }
+
+    /** Populate complete reactor rosters in the background without delaying chat history. */
+    private fun withReactionPeople(chat: Long, source: TdApi.Message, mapped: Message): Message {
+        val info = source.interactionInfo?.reactions ?: return mapped
+        if (!info.canGetAddedReactions || mapped.reactions.isEmpty()) return mapped
+        val signature = info.reactions.joinToString(";") { reaction ->
+            val emoji = (reaction.type as? TdApi.ReactionTypeEmoji)?.emoji.orEmpty()
+            "$emoji:${reaction.totalCount}:${reaction.isChosen}:" + reaction.recentSenderIds.joinToString(",") {
+                when (it) { is TdApi.MessageSenderUser -> "u${it.userId}"; is TdApi.MessageSenderChat -> "c${it.chatId}"; else -> "?" }
+            }
+        }
+        val key = "$chat:${source.id}"
+        reactionCache.get(key)?.takeIf { it.first == signature }?.let { return mapped.copy(reactions = it.second) }
+        if (pendingReactions.add(key)) scope.launch {
+            try {
+                val people = reactionRequests.withPermit {
+                    val all = mutableListOf<Reaction>()
+                    var offset = ""
+                    do {
+                        val page = requireClient().send(TdApi.GetMessageAddedReactions(chat, source.id, null, offset, 100))
+                        for (entry in page.reactions) {
+                            val emoji = (entry.type as? TdApi.ReactionTypeEmoji)?.emoji ?: continue
+                            val sender = entry.senderId
+                            if (sender is TdApi.MessageSenderUser && !users.containsKey(sender.userId)) {
+                                runCatching { requireClient().send(TdApi.GetUser(sender.userId)) }.getOrNull()?.let { users[it.id] = it }
+                            }
+                            all.add(mapper.reactor(emoji, sender, entry.isOutgoing))
+                        }
+                        val next = page.nextOffset
+                        if (next.isEmpty() || next == offset) break
+                        offset = next
+                    } while (true)
+                    all
+                }
+                reactionCache.put(key, signature to people)
+                mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversationId(chat)))
+            } catch (failure: Exception) {
+                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                reactionCache.put(key, signature to mapped.reactions)
+            } finally { pendingReactions.remove(key) }
+        }
+        return mapped
     }
 
     /** Quoted messages in the same chat, fetched from TDLib's local database when not on the page. */
@@ -438,12 +540,21 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         requireClient().send(TdApi.ViewMessages(chat.id, longArrayOf(last), null, true))
     }
 
-    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message {
+    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message =
+        sendText(conversation, text, replyTo, emptyList())
+
+    override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?, mentions: List<TextSpan>): Message {
         val chat = requireChat(conversation)
+        // A mention names its user, so it notifies even people without a username.
+        val entities = mentions.mapNotNull { mention ->
+            val user = mention.target?.toLongOrNull() ?: return@mapNotNull null
+            if (mention.start < 0 || mention.end > text.length) return@mapNotNull null
+            TdApi.TextEntity(mention.start, mention.length, TdApi.TextEntityTypeMentionName(user))
+        }.toTypedArray()
         val request = TdApi.SendMessage().apply {
             chatId = chat.id
             inputMessageContent = TdApi.InputMessageText().apply {
-                this.text = TdApi.FormattedText(text, emptyArray())
+                this.text = TdApi.FormattedText(text, entities)
                 clearDraft = true
             }
             if (replyTo != null) {
@@ -479,6 +590,56 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         else requireClient().send(TdApi.UnpinChatMessage(chatId(conversation), message.id.toLong()))
     }
 
+    override suspend fun listPinnedMessages(conversation: Conversation): List<Message> {
+        val chat = requireChat(conversation)
+        val collected = linkedMapOf<Long, TdApi.Message>()
+        var from = 0L
+        while (true) {
+            val page = requireClient().send(TdApi.SearchChatMessages().apply {
+                chatId = chat.id
+                query = ""
+                fromMessageId = from
+                offset = 0
+                limit = 100
+                filter = TdApi.SearchMessagesFilterPinned()
+            }).messages
+            val fresh = page.filter { it.id !in collected }
+            if (fresh.isEmpty()) break
+            fresh.forEach { collected[it.id] = it }
+            from = fresh.last().id
+        }
+        val replies = resolveReplies(chat.id, collected.values.toList())
+        return collected.values.map { synchronized(chat) { mapper.message(chat, it, replies) } }
+    }
+
+    override suspend fun createPoll(conversation: Conversation, question: String, options: List<String>, multiple: Boolean) {
+        require(question.trim().length in 1..255) { "Poll questions must be 1 to 255 characters" }
+        require(options.size in 2..10) { "A poll needs 2 to 10 options" }
+        require(options.all { it.trim().length in 1..100 }) { "Poll options must be 1 to 100 characters" }
+        val poll = TdApi.InputMessagePoll().apply {
+            this.question = TdApi.FormattedText(question.trim(), emptyArray())
+            this.options = options.map { option ->
+                TdApi.InputPollOption(TdApi.FormattedText(option.trim(), emptyArray()), null)
+            }.toTypedArray()
+            isAnonymous = true
+            allowsMultipleAnswers = multiple
+            type = TdApi.InputPollTypeRegular()
+        }
+        requireClient().send(TdApi.SendMessage().apply {
+            chatId = chatId(conversation)
+            inputMessageContent = poll
+        })
+    }
+
+    override suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>) {
+        require(options.isNotEmpty()) { "Choose at least one option" }
+        requireClient().send(TdApi.SetPollAnswer(chatId(conversation), message.id.toLong(), options.toIntArray()))
+    }
+
+    override suspend fun closePoll(conversation: Conversation, message: Message) {
+        requireClient().send(TdApi.StopPoll(chatId(conversation), message.id.toLong(), null))
+    }
+
     override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) {
         val chat = requireChat(conversation)
         val client = requireClient()
@@ -496,6 +657,81 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             }
             client.send(TdApi.SetChatNotificationSettings(chat.id, settings))
         }
+        update.expiration?.let { seconds -> client.send(TdApi.SetChatMessageAutoDeleteTime(chat.id, seconds)) }
+    }
+
+    /** Whether we may change who is in a group (admin or owner). */
+    internal fun isAdmin(chat: TdApi.Chat): Boolean {
+        val status = when (val type = chat.type) {
+            is TdApi.ChatTypeBasicGroup -> basicGroups[type.basicGroupId]?.status
+            is TdApi.ChatTypeSupergroup -> supergroups[type.supergroupId]?.status
+            else -> null
+        }
+        return status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
+    }
+
+    override suspend fun listMembers(conversation: Conversation): List<Member> {
+        val chat = requireChat(conversation)
+        val client = requireClient()
+        val members: List<TdApi.ChatMember> = when (val type = chat.type) {
+            is TdApi.ChatTypePrivate -> return listOfNotNull(
+                (users[type.userId] ?: runCatching { client.send(TdApi.GetUser(type.userId)) }.getOrNull())
+                    ?.takeIf { it.id != myUserId() }?.let { Member(it.id.toString(), mapper.userName(it)) },
+            )
+            is TdApi.ChatTypeBasicGroup -> client.send(TdApi.GetBasicGroupFullInfo(type.basicGroupId)).members.toList()
+            is TdApi.ChatTypeSupergroup -> client.send(TdApi.GetSupergroupMembers(type.supergroupId, null, 0, 200)).members.toList()
+            else -> emptyList()
+        }
+        return members.mapNotNull { member ->
+            val userId = (member.memberId as? TdApi.MessageSenderUser)?.userId ?: return@mapNotNull null
+            if (userId == myUserId() || member.status is TdApi.ChatMemberStatusLeft || member.status is TdApi.ChatMemberStatusBanned) return@mapNotNull null
+            val user = users[userId] ?: runCatching { client.send(TdApi.GetUser(userId)) }.getOrNull()?.also { users[it.id] = it }
+            Member(userId.toString(), user?.let(mapper::userName) ?: "Telegram user",
+                isAdmin = member.status is TdApi.ChatMemberStatusCreator || member.status is TdApi.ChatMemberStatusAdministrator)
+        }.sortedBy { it.name.lowercase() }
+    }
+
+    override suspend fun setBlocked(conversation: Conversation, blocked: Boolean) {
+        val user = (requireChat(conversation).type as? TdApi.ChatTypePrivate)?.userId
+            ?: throw TelegramException(0, "Only people can be blocked; leave the group instead")
+        requireClient().send(TdApi.SetMessageSenderBlockList(TdApi.MessageSenderUser(user), if (blocked) TdApi.BlockListMain() else null))
+    }
+
+    override suspend fun respondToMessageRequest(conversation: Conversation, accept: Boolean) {
+        val chat = requireChat(conversation)
+        if (accept) requireClient().send(TdApi.RemoveChatActionBar(chat.id))
+        else requireClient().send(TdApi.DeleteChatHistory(chat.id, true, false))
+        conversationsChanged()
+    }
+
+    override suspend fun createGroup(name: String, members: List<String>): Conversation {
+        val title = name.trim().ifEmpty { throw TelegramException(0, "A group needs a name") }
+        val ids = members.mapNotNull { it.toLongOrNull() }.toLongArray()
+        if (ids.isEmpty()) throw TelegramException(0, "Choose at least one person")
+        val created = requireClient().send(TdApi.CreateNewBasicGroupChat(ids, title, 0))
+        val chat = chats[created.chatId] ?: requireClient().send(TdApi.GetChat(created.chatId)).also { chats.putIfAbsent(it.id, it) }
+        return synchronized(chat) { mapper.conversation(chats.getValue(chat.id)) }
+    }
+
+    override suspend fun renameGroup(conversation: Conversation, name: String) {
+        requireClient().send(TdApi.SetChatTitle(chatId(conversation), name.trim().ifEmpty { throw TelegramException(0, "A group needs a name") }))
+    }
+
+    override suspend fun addGroupMembers(conversation: Conversation, members: List<String>) {
+        val failed = requireClient().send(TdApi.AddChatMembers(chatId(conversation), members.mapNotNull { it.toLongOrNull() }.toLongArray()))
+        if (failed.failedToAddMembers.isNotEmpty()) {
+            val names = failed.failedToAddMembers.map { users[it.userId]?.let(mapper::userName) ?: "Someone" }
+            throw TelegramException(0, "${names.joinToString()} couldn't be added; their privacy settings need an invite link")
+        }
+    }
+
+    override suspend fun removeGroupMember(conversation: Conversation, member: Member) {
+        val user = member.id.toLongOrNull() ?: throw TelegramException(0, "Unknown member")
+        requireClient().send(TdApi.BanChatMember(chatId(conversation), TdApi.MessageSenderUser(user), 0, false))
+    }
+
+    override suspend fun leaveGroup(conversation: Conversation) {
+        requireClient().send(TdApi.LeaveChat(chatId(conversation)))
     }
 
     override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String {
@@ -504,15 +740,36 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             ?: throw TelegramException(0, "Download didn't finish")
     }
 
+    override suspend fun downloadThumbnail(conversation: Conversation, message: Message, attachment: Attachment): String? {
+        val id = attachment.thumbnailId?.toIntOrNull() ?: return null
+        val file = requireClient().send(TdApi.DownloadFile(id, 1, 0, 0, true))
+        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
+    }
+
+    override suspend fun sendAttachments(conversation: Conversation, files: List<dev.dumbtalk.core.OutgoingAttachment>, caption: String?, replyTo: Message?) {
+        if (files.size < 2 || files.any { !it.mimeType.startsWith("image/") && !it.mimeType.startsWith("video/") }) {
+            return super.sendAttachments(conversation, files, caption, replyTo)
+        }
+        require(files.size <= 10) { "An album can contain at most 10 files" }
+        requireClient().send(TdApi.SendMessageAlbum().apply {
+            chatId = chatId(conversation)
+            if (replyTo != null) this.replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTo.id.toLong() }
+            inputMessageContents = files.mapIndexed { index, file -> attachmentContent(file.path, file.mimeType, if (index == 0) caption else null) }.toTypedArray()
+        })
+    }
+
     override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) {
+        send(conversation, attachmentContent(path, mimeType, caption))
+    }
+
+    private fun attachmentContent(path: String, mimeType: String, caption: String?): TdApi.InputMessageContent {
         val file = TdApi.InputFileLocal(path)
         val text = TdApi.FormattedText(caption.orEmpty(), emptyArray())
-        val content: TdApi.InputMessageContent = when {
+        return when {
             mimeType.startsWith("image/") -> TdApi.InputMessagePhoto().apply { photo = TdApi.InputPhoto().apply { photo = file }; this.caption = text }
             mimeType.startsWith("video/") -> TdApi.InputMessageVideo().apply { video = TdApi.InputVideo().apply { video = file }; this.caption = text }
             else -> TdApi.InputMessageDocument().apply { document = TdApi.InputDocument().apply { document = file }; this.caption = text }
         }
-        send(conversation, content)
     }
 
     override suspend fun sendVoiceNote(conversation: Conversation, path: String, mimeType: String, durationMillis: Long) {
@@ -533,7 +790,13 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     }
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> {
-        val found = requireClient().send(TdApi.SearchMessages().apply {
+        val found = if (conversation != null) requireClient().send(TdApi.SearchChatMessages().apply {
+            chatId = chatId(conversation)
+            this.query = query
+            fromMessageId = 0
+            offset = 0
+            limit = 100
+        }).messages else requireClient().send(TdApi.SearchMessages().apply {
             this.query = query
             offset = ""
             limit = 50

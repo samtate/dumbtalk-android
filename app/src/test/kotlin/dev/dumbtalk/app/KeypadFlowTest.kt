@@ -29,9 +29,10 @@ class KeypadFlowTest : KeypadTest() {
         waitFor("QUICK REACTION")
         shoot("message-actions")
 
-        // Centre picks the focused 👍 reaction and returns to the chat.
+        // Centre selects Reply; Cancel leaves the draft, then Back returns to messages.
         press(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("👍")
+        waitFor("Replying to")
+        press(KeyEvent.KEYCODE_BACK, KeyEvent.KEYCODE_BACK)
         waitFor("Count me in!")
 
         // Down from the newest message focuses the message box; centre sends. Back
@@ -43,7 +44,7 @@ class KeypadFlowTest : KeypadTest() {
         while (exists(hasSetTextAction() and hasText("Leaving now"))) step()
         press(KeyEvent.KEYCODE_BACK)
         waitFor("Leaving now")
-        waitFor("1=MESSAGE")
+        waitFor("1 ACTIONS")
 
         // Centre on the focused Send button sends (the Type softkey once took
         // the key). Robolectric's text field keeps D-pad right for its
@@ -55,6 +56,8 @@ class KeypadFlowTest : KeypadTest() {
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         while (exists(hasSetTextAction() and hasText("Via the button"))) step()
         waitFor("Via the button")
+        press(KeyEvent.KEYCODE_BACK) // from the composer to the messages
+        waitFor("1 ACTIONS")
 
         // Back to the inbox. The same press must not also trigger the
         // inbox's Exit (it once closed the app on key-up).
@@ -62,10 +65,12 @@ class KeypadFlowTest : KeypadTest() {
         waitFor("Maya Chen")
         check(!compose.activity.isFinishing) { "Back from a chat closed the app" }
 
-        // Open the menu and move to Services.
+        // Open Settings from the menu, then Services.
         press(KeyEvent.KEYCODE_1)
-        waitFor("Services")
+        waitFor("Settings")
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Services")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("+15550100999")
         shoot("services")
 
@@ -80,7 +85,7 @@ class KeypadFlowTest : KeypadTest() {
 
         // The demo "scan" completes on its own after a few seconds.
         waitFor("Signal connected", timeoutMillis = 30_000)
-        press(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("Maya Chen")
+        press(KeyEvent.KEYCODE_DPAD_CENTER) // back to Settings, where setup began
+        waitFor("Left action key")
     }
 }

@@ -102,7 +102,8 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
                 status.id.label,
                 onClick = {
                     focusedService = status.id
-                    if (status.connected) confirmDisconnect = status.id else navigator.push(Screen.Setup(status.id))
+                    if (status.id == ServiceId.SMS) navigator.push(Screen.Setup(status.id))
+                    else if (status.connected) confirmDisconnect = status.id else navigator.push(Screen.Setup(status.id))
                 },
                 description = status.accountLabel ?: if (status.connected) "Connected" else "Not connected",
                 focusRequester = if (status.id == (focusedService ?: statuses!!.first().id)) requester else null,

@@ -1,6 +1,8 @@
 package dev.dumbtalk.app.screens
 
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import dev.dumbtalk.app.ui.attachmentLine
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.app.media.AudioPlayer
@@ -28,10 +30,23 @@ import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.snapshots.SnapshotStateMap
+import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
@@ -53,6 +68,7 @@ import java.time.LocalDate
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.time.format.FormatStyle
+import kotlinx.coroutines.launch
 
 // The scrolling message list of a chat: day dividers, sender names and bubbles.
 
@@ -67,10 +83,24 @@ internal fun MessageList(
     onSelect: (Message) -> Unit,
     onOpen: (Message) -> Unit,
     onLoadOlder: () -> Unit,
-    loadAttachment: suspend (Message) -> String,
+    loadAttachment: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
     /** Focus target for D-pad down from the newest message: the message box. */
     belowLast: FocusRequester,
+    focusByMessageId: SnapshotStateMap<String, FocusRequester>,
+    onReply: (Message) -> Unit,
+    onRight: () -> Unit,
+    /** Messages whose spoilers are shown. */
+    revealed: Set<String> = emptySet(),
+    /** A reactor's profile photo by their id. */
+    loadAvatar: suspend (String) -> String? = { null },
 ) {
+    val scope = rememberCoroutineScope()
+    val selectedIndex = messages.indexOfFirst { it.id == selectedId }
+    val activeIndex = remember(messages) { mutableIntStateOf(selectedIndex.takeIf { it >= 0 } ?: messages.lastIndex) }
+    LaunchedEffect(messages, selectedId) {
+        if (selectedIndex >= 0) activeIndex.intValue = selectedIndex
+    }
     val zone = ZoneId.systemDefault()
     val time = remember { DateTimeFormatter.ofLocalizedTime(FormatStyle.SHORT) }
     val day = remember { DateTimeFormatter.ofPattern("EEE, MMM d") }
@@ -85,6 +115,30 @@ internal fun MessageList(
         assignTints(people, avoid = ownTint)
     }
     val tintOf = { name: String -> if (name == "You") ownTint else tints[name] ?: avatarTint(name) }
+    fun showsSender(index: Int): Boolean {
+        val message = messages[index]
+        val previous = messages.getOrNull(index - 1)
+        fun day(m: Message) = Instant.ofEpochMilli(m.sentAt).atZone(zone).toLocalDate()
+        return conversation.kind == ConversationKind.GROUP && message.direction == Direction.INCOMING &&
+            (previous?.sender != message.sender || previous?.let(::day) != day(message))
+    }
+    // The message at the top of the screen keeps its sender's name in view: when
+    // the name above it (or above the start of their run) has scrolled off, it
+    // is pinned to the top of the list instead.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val pinnedIndex by remember(messages, hasMore) {
+        androidx.compose.runtime.derivedStateOf {
+            val visible = listState.layoutInfo.visibleItemsInfo.filter { it.key != "older" }
+            // A sliver of a message at the very top doesn't count; the next one does.
+            val sliver = with(density) { 28.dp.toPx() }
+            val top = visible.firstOrNull { it.offset + it.size > sliver } ?: return@derivedStateOf -1
+            val index = top.index - if (hasMore) 1 else 0
+            val message = messages.getOrNull(index) ?: return@derivedStateOf -1
+            val ownNameShows = showsSender(index) && top.offset >= 0
+            if (conversation.kind != ConversationKind.GROUP || message.direction != Direction.INCOMING || ownNameShows) -1 else index
+        }
+    }
+    Box(Modifier.fillMaxSize()) {
     LazyColumn(state = listState, contentPadding = PaddingValues(horizontal = 7.dp, vertical = 4.dp), modifier = Modifier.fillMaxSize()) {
         if (hasMore) {
             item(key = "older") {
@@ -100,32 +154,85 @@ internal fun MessageList(
             }
         }
         itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
+            val itemFocus = remember(message.id) { FocusRequester() }
+            // The whole row (day, name, bubble) scrolls into view with a focused message, not just its bubble.
+            val itemView = remember(message.id) { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+            DisposableEffect(message.id, itemFocus) {
+                focusByMessageId[message.id] = itemFocus
+                onDispose { if (focusByMessageId[message.id] === itemFocus) focusByMessageId.remove(message.id) }
+            }
             val previous = messages.getOrNull(index - 1)
             val date = Instant.ofEpochMilli(message.sentAt).atZone(zone).toLocalDate()
             val previousDate = previous?.let { Instant.ofEpochMilli(it.sentAt).atZone(zone).toLocalDate() }
-            Column {
+            Column(Modifier.bringIntoViewRequester(itemView)) {
                 if (date != previousDate) DayDivider(if (date == LocalDate.now(zone)) "Today" else day.format(date))
-                val showSender = conversation.kind == ConversationKind.GROUP &&
-                    message.direction == Direction.INCOMING &&
-                    (previous?.sender != message.sender || date != previousDate)
+                val showSender = showsSender(index)
                 val tint = if (message.direction == Direction.OUTGOING) ownTint else tintOf(personOf(message))
+                val moveAdjacent: (Int) -> Boolean = { delta ->
+                    val fromIndex = activeIndex.intValue.takeIf { it in messages.indices } ?: index
+                    val targetIndex = generateSequence(fromIndex + delta) { it + delta }
+                        .takeWhile { it in messages.indices }
+                        .firstOrNull { messages[it].direction != Direction.SYSTEM }
+                    if (targetIndex == null) {
+                        false
+                    } else {
+                        val target = messages[targetIndex]
+                        activeIndex.intValue = targetIndex
+                        onSelect(target)
+                        scope.launch {
+                            val lazyIndex = targetIndex + if (hasMore) 1 else 0
+                            if (listState.layoutInfo.visibleItemsInfo.none { it.index == lazyIndex }) {
+                                listState.scrollToItem(lazyIndex)
+                            }
+                            withFrameNanos { }
+                            withFrameNanos { }
+                            selectedFocus.requestFocus()
+                        }
+                        true
+                    }
+                }
                 if (showSender) BasicText(message.sender.orEmpty().forDisplay(), style = Type.small.copy(color = tint), modifier = Modifier.padding(start = 4.dp, top = 6.dp))
                 Bubble(
                     message,
                     tint,
                     tintOf,
                     loadAttachment,
+                    loadThumbnail,
                     time.format(Instant.ofEpochMilli(message.sentAt).atZone(zone)),
                     maxBubble,
                     focusRequester = if (message.id == selectedId) selectedFocus else null,
-                    onFocus = { onSelect(message) },
+                    itemFocusRequester = itemFocus,
+                    onFocus = {
+                        activeIndex.intValue = index
+                        onSelect(message)
+                        scope.launch { withFrameNanos { }; itemView.bringIntoView() }
+                    },
                     onOpen = { onOpen(message) },
+                    onVerticalMove = moveAdjacent,
+                    onReply = { if (!message.deleted) onReply(message) },
+                    onRight = onRight,
                     downTo = if (index == messages.lastIndex) belowLast else null,
+                    revealed = message.id in revealed,
+                    loadAvatar = loadAvatar,
                 )
             }
         }
     }
+    messages.getOrNull(pinnedIndex)?.let { message ->
+        val name = message.sender.orEmpty().forDisplay()
+        BasicText(
+            name,
+            style = Type.small.copy(color = tintOf(personOf(message))),
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(start = 7.dp)
+                .background(Palette.background)
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+        )
+    }
+    }
 }
+
 
 @Composable
 private fun DayDivider(label: String) {
@@ -145,28 +252,61 @@ private fun Bubble(
     message: Message,
     tint: Color,
     tintOf: (String) -> Color,
-    loadAttachment: suspend (Message) -> String,
+    loadAttachment: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
+    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
     time: String,
     maxWidth: androidx.compose.ui.unit.Dp,
     focusRequester: FocusRequester?,
+    itemFocusRequester: FocusRequester,
     onFocus: () -> Unit,
     onOpen: () -> Unit,
+    onVerticalMove: (Int) -> Boolean,
+    onReply: () -> Unit,
+    onRight: () -> Unit,
     downTo: FocusRequester? = null,
+    revealed: Boolean = false,
+    loadAvatar: suspend (String) -> String? = { null },
 ) {
     if (message.direction == Direction.SYSTEM) {
         CenteredMessage(message.text.orEmpty(), Modifier.padding(vertical = 2.dp))
         return
     }
     val outgoing = message.direction == Direction.OUTGOING
+    val horizontalPress = remember { arrayOfNulls<Key>(1) }
+    // With photos or videos, text wraps to their width rather than widening the bubble.
+    val inner = maxWidth - 14.dp
+    val visuals = if (message.deleted) emptyList() else message.visuals()
+    val mediaWidth = when {
+        visuals.size > 1 -> collageSize(inner, visuals.size).first
+        visuals.size == 1 -> visualSize(visuals[0], inner, captionWidth(message, inner)).first
+        else -> null
+    }
+    val bubbleWidth = mediaWidth?.let { minOf(maxWidth, maxOf(it, 120.dp) + 14.dp) } ?: maxWidth
     Box(Modifier.fillMaxWidth(), contentAlignment = if (outgoing) Alignment.CenterEnd else Alignment.CenterStart) {
         Column(
             Modifier
                 .padding(vertical = 2.dp)
-                .widthIn(max = maxWidth)
+                .widthIn(max = bubbleWidth)
                 .then(if (downTo != null) Modifier.focusProperties { down = downTo } else Modifier)
+                .focusRequester(itemFocusRequester)
+                .onFocusChanged { if (!it.isFocused) horizontalPress[0] = null }
+                .onPreviewKeyEvent { event ->
+                    when (event.key) {
+                        Key.DirectionLeft, Key.DirectionRight -> {
+                            if (event.type == KeyEventType.KeyDown) horizontalPress[0] = event.key
+                            else if (event.type == KeyEventType.KeyUp && horizontalPress[0] == event.key) {
+                                horizontalPress[0] = null
+                                if (event.key == Key.DirectionLeft) onReply() else onRight()
+                            }
+                            true
+                        }
+                        else -> false
+                    }
+                }
                 .focusCard(
                     onOpen, Square, SolidColor(lerp(Palette.background, tint, 0.24f)),
                     focusRequester, onFocus, idleBorder = tint.copy(alpha = 0.7f), claimsCenter = false,
+                    onVerticalMove = onVerticalMove,
                 )
                 .padding(horizontal = 7.dp, vertical = 5.dp),
         ) {
@@ -183,18 +323,26 @@ private fun Bubble(
                     BasicText((quote.text ?: "Message").forDisplay(), style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
             }
-            if (!message.deleted) InlineImage(message, maxWidth - 14.dp, loadAttachment)
+            if (visuals.size > 1) MediaCollage(message, visuals, inner, loadAttachment, loadThumbnail)
+            if (!message.deleted) message.attachments.forEach { attachment ->
+                when (attachment.kind) {
+                    AttachmentKind.IMAGE -> if (visuals.size == 1) InlineImage(message, attachment, inner, loadAttachment)
+                    AttachmentKind.VIDEO -> if (visuals.size == 1) InlineVideo(message, attachment, inner, loadAttachment, loadThumbnail)
+                    AttachmentKind.AUDIO -> InlineAudio(message, attachment, inner, loadAttachment)
+                    AttachmentKind.FILE -> Unit
+                }
+            }
             val italic = message.deleted
-            val line = if (message.deleted) null else attachmentLine(message)
+            val line = if (message.deleted || visuals.size > 1 || message.attachments.firstOrNull()?.kind == AttachmentKind.AUDIO) null else attachmentLine(message)
             if (line != null) {
                 BasicText(if (AudioPlayer.playing == message.id) "■ Playing…" else line.forDisplay(), style = Type.label)
             }
             // The caption or text; a photo or file with none needs no extra line.
             val label = when {
-                message.deleted -> "This message was deleted"
-                message.text != null -> messageSummary(message).forDisplay()
-                message.image() != null || line != null -> null
-                else -> messageSummary(message).forDisplay()
+                message.deleted -> androidx.compose.ui.text.AnnotatedString("This message was deleted")
+                message.text != null -> dev.dumbtalk.app.ui.styledText(message.text!!, message.spans, revealed)
+                message.attachments.isNotEmpty() || line != null -> null
+                else -> androidx.compose.ui.text.AnnotatedString(messageSummary(message).forDisplay())
             }
             if (label != null) {
                 BasicText(
@@ -203,24 +351,32 @@ private fun Bubble(
                         color = if (italic) Palette.muted else Palette.text,
                         fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
                     ),
+                    // A caption sits clear of the photo or video above it.
+                    modifier = if (visuals.isNotEmpty()) Modifier.padding(top = 6.dp) else Modifier,
                 )
+            }
+            if (!message.deleted) message.previews.firstOrNull()?.let { preview ->
+                Column(
+                    Modifier
+                        .padding(top = 3.dp)
+                        .border(1.dp, tint.copy(alpha = 0.6f), Square)
+                        .padding(horizontal = 5.dp, vertical = 2.dp),
+                ) {
+                    BasicText(preview.title.forDisplay(), style = Type.bold(Type.small), maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    preview.description?.let { BasicText(it.forDisplay(), style = Type.preview, maxLines = 2, overflow = TextOverflow.Ellipsis) }
+                    preview.url?.let(::linkHost)?.let { BasicText(it, style = Type.small.copy(color = Palette.muted), maxLines = 1) }
+                }
             }
             message.poll?.takeIf { !message.deleted }?.let { poll ->
                 Column(Modifier.padding(top = 2.dp)) {
                     poll.options.forEach { option ->
                         val votes = option.votes.size.takeIf { it > 0 }?.let { " · $it" }.orEmpty()
-                        BasicText("${if (poll.multiple) "□" else "○"} ${option.text}$votes".forDisplay(), style = Type.body)
+                        BasicText("${when { option.mine && poll.multiple -> "■"; option.mine -> "●"; poll.multiple -> "□"; else -> "○" }} ${option.text}$votes".forDisplay(), style = Type.body)
                     }
                     if (poll.closed) BasicText("Poll closed", style = Type.small)
                 }
             }
-            if (message.reactions.isNotEmpty()) {
-                BasicText(
-                    message.reactions.groupBy { it.emoji }.entries.joinToString(" ") { (emoji, list) -> if (list.size > 1) "$emoji${list.size}" else emoji }.forDisplay(),
-                    style = Type.body,
-                    modifier = Modifier.padding(top = 2.dp).border(1.dp, tint.copy(alpha = 0.45f), Square).padding(horizontal = 5.dp, vertical = 1.dp),
-                )
-            }
+            if (message.reactions.isNotEmpty()) ReactionChips(message.reactions, tint, loadAvatar)
             val meta = buildAnnotatedString {
                 if (message.pinned) append("📌".forDisplay() + " ")
                 if (message.edited && !message.deleted) append("edited · ")
@@ -235,3 +391,7 @@ private fun Bubble(
     }
 }
 
+
+/** The host of a link, without "www.", for the line under a link preview. */
+internal fun linkHost(url: String): String? =
+    runCatching { java.net.URI(url.trim()).host }.getOrNull()?.removePrefix("www.")?.ifBlank { null }

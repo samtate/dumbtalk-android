@@ -15,16 +15,23 @@ object AudioPlayer {
     var playing by mutableStateOf<String?>(null)
         private set
     private var player: MediaPlayer? = null
+    val positionMillis: Long get() = runCatching { player?.currentPosition?.toLong() ?: 0L }.getOrDefault(0L)
+    val durationMillis: Long get() = runCatching { player?.duration?.toLong() ?: 0L }.getOrDefault(0L)
 
     fun play(messageId: String, path: String) {
         stop()
-        player = MediaPlayer().apply {
-            setDataSource(path)
-            setOnCompletionListener { stop() }
-            prepare()
-            start()
+        val next = MediaPlayer()
+        try {
+            next.setDataSource(path)
+            next.setOnCompletionListener { stop() }
+            next.prepare()
+            next.start()
+            player = next
+            playing = messageId
+        } catch (failure: Exception) {
+            next.release()
+            throw failure
         }
-        playing = messageId
     }
 
     fun stop() {

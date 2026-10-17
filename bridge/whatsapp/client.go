@@ -5,9 +5,12 @@ package wabridge
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"os"
 	"path/filepath"
 	"sync"
@@ -17,6 +20,7 @@ import (
 	"go.mau.fi/whatsmeow"
 	"go.mau.fi/whatsmeow/store"
 	"go.mau.fi/whatsmeow/store/sqlstore"
+	"go.mau.fi/whatsmeow/types"
 	waLog "go.mau.fi/whatsmeow/util/log"
 	"google.golang.org/protobuf/proto"
 )
@@ -90,6 +94,7 @@ func NewClient(dir string, deviceName string, listener Listener) (*Client, error
 	c := &Client{dir: dir, listener: listener, store: messages, log: log}
 	c.wa = whatsmeow.NewClient(device, log.Sub("client"))
 	c.wa.AddEventHandler(c.onEvent)
+	go c.expireLoop()
 	return c, nil
 }
 
@@ -106,6 +111,64 @@ func (c *Client) AccountJSON() string {
 	}
 	encoded, _ := json.Marshal(map[string]string{"phone": c.wa.Store.ID.User, "name": c.wa.Store.PushName})
 	return string(encoded)
+}
+
+// ConversationAvatar downloads and caches a chat's WhatsApp profile photo.
+// An empty path means the chat has no photo or WhatsApp does not expose it.
+func (c *Client) ConversationAvatar(chat string) (string, error) {
+	jid, err := types.ParseJID(chat)
+	if err != nil {
+		return "", err
+	}
+	key := sha256.Sum256([]byte(jid.String()))
+	path := filepath.Join(c.dir, "avatars", fmt.Sprintf("%x.jpg", key[:]))
+	if info, err := os.Stat(path); err == nil && info.Size() > 0 {
+		return path, nil
+	}
+	if !c.wa.IsConnected() {
+		return "", nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
+	defer cancel()
+	info, err := c.wa.GetProfilePictureInfo(ctx, jid, &whatsmeow.GetProfilePictureParams{Preview: true})
+	if err != nil || info == nil || info.URL == "" {
+		return "", nil
+	}
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, info.URL, nil)
+	if err != nil {
+		return "", err
+	}
+	response, err := http.DefaultClient.Do(request)
+	if err != nil {
+		return "", err
+	}
+	defer response.Body.Close()
+	if response.StatusCode < 200 || response.StatusCode >= 300 {
+		return "", nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return "", err
+	}
+	tmp := path + ".tmp"
+	file, err := os.Create(tmp)
+	if err != nil {
+		return "", err
+	}
+	_, copyErr := io.Copy(file, io.LimitReader(response.Body, 2<<20))
+	closeErr := file.Close()
+	if copyErr != nil {
+		_ = os.Remove(tmp)
+		return "", copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(tmp)
+		return "", closeErr
+	}
+	if err := os.Rename(tmp, path); err != nil {
+		_ = os.Remove(tmp)
+		return "", err
+	}
+	return path, nil
 }
 
 // Connect starts the connection for an already linked device.

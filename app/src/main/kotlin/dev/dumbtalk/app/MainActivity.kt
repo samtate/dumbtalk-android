@@ -31,6 +31,7 @@ import dev.dumbtalk.app.screens.MenuScreen
 import dev.dumbtalk.app.screens.NewMessageScreen
 import dev.dumbtalk.app.screens.NewNumberScreen
 import dev.dumbtalk.app.screens.SearchScreen
+import dev.dumbtalk.app.screens.SettingsScreen
 import dev.dumbtalk.app.screens.ServicesScreen
 import dev.dumbtalk.app.screens.SetupScreen
 import dev.dumbtalk.app.ui.DumbTalkTheme
@@ -49,9 +50,14 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        softkeys.leftShortcutCode = getSharedPreferences("app_ui", MODE_PRIVATE)
+            .getInt("left_shortcut", KeyEvent.KEYCODE_1)
+            .takeIf { it == KeyEvent.KEYCODE_UNKNOWN || SoftkeyController.isBindable(it) }
+            ?: KeyEvent.KEYCODE_1
         val app = application as DumbTalkApp
         permissions.ask()
         openFromNotification(intent)
+        acceptSmsIntent(intent)
         setContent {
             DumbTalkTheme {
                 CompositionLocalProvider(LocalSoftkeys provides softkeys) {
@@ -71,11 +77,14 @@ class MainActivity : ComponentActivity() {
                                     is Screen.Inbox -> InboxScreen(app, navigator, screen.archived)
                                     is Screen.Menu -> MenuScreen(app, navigator, screen)
                                     is Screen.Chat -> ChatScreen(app, navigator, screen)
+                                    is Screen.ChatTools -> dev.dumbtalk.app.screens.ChatToolsScreen(app, navigator, screen)
                                     Screen.Services -> ServicesScreen(app, navigator)
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
+                                    Screen.Settings -> SettingsScreen(navigator, softkeys)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
                                     Screen.NewNumber -> NewNumberScreen(app, navigator)
+                                    Screen.NewGroup -> dev.dumbtalk.app.screens.NewGroupScreen(app, navigator)
                                 }
                             }
                         }
@@ -91,6 +100,10 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         resumed = true
+        val app = application as DumbTalkApp
+        (app.registry.installed.firstOrNull { it is dev.dumbtalk.app.sms.SmsService } as? dev.dumbtalk.app.sms.SmsService)?.refresh()
+        dev.dumbtalk.app.sms.SmsWork.scope.launch { dev.dumbtalk.app.sms.SmsWork.drain(this@MainActivity) }
+        openPendingSms()
     }
 
     override fun onPause() {
@@ -102,6 +115,8 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         openFromNotification(intent)
+        acceptSmsIntent(intent)
+        openPendingSms()
     }
 
     /** Tells the notifier what's on screen, and clears an opened chat's notification. */
@@ -126,6 +141,39 @@ class MainActivity : ComponentActivity() {
             } ?: app.inbox.find(id) ?: return@launch
             navigator.popToRoot()
             navigator.openChat(conversation)
+        }
+    }
+
+    private var pendingSms: Pair<String, String?>? = null
+
+    private fun acceptSmsIntent(source: Intent?) {
+        if (source?.action != Intent.ACTION_SENDTO) return
+        val uri = source.data ?: return
+        if (uri.scheme !in setOf("sms", "smsto", "mms", "mmsto")) return
+        pendingSms = android.net.Uri.decode(uri.encodedSchemeSpecificPart.substringBefore('?')) to
+            (source.getStringExtra("sms_body") ?: source.getStringExtra(Intent.EXTRA_TEXT))
+        source.action = null
+        source.data = null
+    }
+
+    private fun openPendingSms() {
+        val target = pendingSms ?: return
+        val app = application as DumbTalkApp
+        val sms = app.registry.installed.filterIsInstance<dev.dumbtalk.app.sms.SmsService>().firstOrNull() ?: return
+        if (!sms.enabled()) {
+            navigator.popToRoot()
+            navigator.push(Screen.Setup(dev.dumbtalk.core.ServiceId.SMS))
+            return
+        }
+        pendingSms = null
+        lifecycleScope.launch {
+            runCatching { sms.createDirect(target.first) }.onSuccess { chat ->
+                target.second?.takeIf { it.isNotBlank() }?.let { app.drafts.putIfAbsent(chat.id, it) }
+                navigator.popToRoot()
+                navigator.openChat(chat)
+            }.onFailure {
+                android.widget.Toast.makeText(this@MainActivity, it.message ?: "Could not open SMS", android.widget.Toast.LENGTH_LONG).show()
+            }
         }
     }
 

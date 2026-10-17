@@ -46,7 +46,7 @@ fn joined(given: &str, family: &str) -> Option<String> {
 
 /// presage keeps its credentials private, but `RegistrationData` serialises
 /// them; rebuild an authenticated push service from that.
-fn push_service(data: &RegistrationData) -> Result<PushService, String> {
+pub(crate) fn push_service(data: &RegistrationData) -> Result<PushService, String> {
     let value = serde_json::to_value(data).map_err(|e| e.to_string())?;
     let uuid = |key: &str| value.get(key).and_then(Value::as_str).and_then(|s| Uuid::parse_str(s).ok());
     let password = value.get("password").and_then(Value::as_str).ok_or("no stored password")?.to_string();

@@ -3,16 +3,22 @@ package dev.dumbtalk.app
 import androidx.compose.runtime.mutableStateListOf
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ServiceId
+import dev.dumbtalk.core.SearchResult
+
+enum class ChatTool { SEARCH, PINS }
 
 sealed interface Screen {
     data class Inbox(val archived: Boolean = false) : Screen
     data class Menu(val selected: Conversation?, val archived: Boolean) : Screen
-    data class Chat(val conversationId: String, val initial: Conversation) : Screen
+    data class Chat(val conversationId: String, val initial: Conversation, val showOptions: Boolean = false, val target: SearchResult? = null) : Screen
+    data class ChatTools(val conversation: Conversation, val tool: ChatTool) : Screen
     data object Services : Screen
+    data object Settings : Screen
     data class Setup(val serviceId: ServiceId) : Screen
     data object Search : Screen
     data object NewMessage : Screen
     data object NewNumber : Screen
+    data object NewGroup : Screen
 }
 
 class Navigator {
@@ -36,7 +42,8 @@ class Navigator {
         if (stack.size > 1) stack.removeAt(stack.lastIndex)
     }
 
-    fun openChat(conversation: Conversation) = push(Screen.Chat(conversation.id, conversation))
+    fun openChat(conversation: Conversation, showOptions: Boolean = false, target: SearchResult? = null) =
+        push(Screen.Chat(conversation.id, conversation, showOptions, target))
 
     fun popToRoot() {
         while (stack.size > 1) stack.removeAt(stack.lastIndex)

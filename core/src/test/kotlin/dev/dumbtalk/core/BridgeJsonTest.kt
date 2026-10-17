@@ -15,6 +15,16 @@ class BridgeJsonTest {
     )
 
     @Test
+    fun pollVotesAndOwnChoiceMap() {
+        val poll = """{"question":"Lunch?","options":["Soup","Pie"],"multiple":false,"closed":true,"votes":[["Joel","You"],[]],"mine":[0]}"""
+        val parsed = message(""""kind":"poll","poll":${org.json.JSONObject.quote(poll)}""").poll!!
+        assertEquals(listOf("Joel", "You"), parsed.options[0].votes)
+        assertTrue(parsed.options[0].mine)
+        assertFalse(parsed.options[1].mine)
+        assertTrue(parsed.closed)
+    }
+
+    @Test
     fun stickersAreBareImagesNotCaptions() {
         val sticker = message(""""kind":"sticker","mime":"image/webp"""")
         val attachment = sticker.attachments.single()
@@ -54,7 +64,29 @@ class BridgeJsonTest {
         )
         assertEquals("Maya", reply.quote?.author)
         assertEquals("coming?", reply.quote?.text)
-        assertEquals(listOf("Maya", "You"), reply.reactions.map { it.author })
+        assertEquals(listOf("Maya", "x"), reply.reactions.map { it.author })
         assertEquals(listOf(false, true), reply.reactions.map { it.isOwn })
+    }
+
+    @Test
+    fun stylesMentionsAndChatStateMap() {
+        val styled = message(""""kind":"text","text":"@Ann hi","styles":[{"start":0,"length":4,"style":"mention","id":"a1"},{"start":5,"length":9,"style":"bold"},{"start":0,"length":1,"style":"sparkle"}]""")
+        assertEquals(TextSpan(0, 4, TextSpan.Style.MENTION, "a1"), styled.spans[0])
+        // Clipped to the text; unknown styles are dropped.
+        assertEquals(TextSpan(5, 2, TextSpan.Style.BOLD), styled.spans[1])
+        assertEquals(2, styled.spans.size)
+
+        val chat = json.conversation("""{"jid":"c:1","name":"Ann","expireTimer":604800,"request":true,"blocked":false,"admin":true}""")
+        assertEquals(604_800, chat.expiration)
+        assertTrue(chat.isMessageRequest)
+        assertFalse(chat.isBlocked)
+        assertTrue(chat.isAdmin)
+
+        val members = json.members("""[{"id":"a1","name":"Ann","admin":true},{"id":"b2","name":"","pending":true}]""")
+        assertEquals(Member("a1", "Ann", isAdmin = true), members[0])
+        assertEquals(Member("b2", "Someone", isPending = true), members[1])
+        assertEquals("1 week", timerLabel(604_800))
+        assertEquals("8 hours", timerLabel(28_800))
+        assertEquals("Off", timerLabel(0))
     }
 }

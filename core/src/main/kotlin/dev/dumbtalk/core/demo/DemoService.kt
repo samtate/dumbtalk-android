@@ -42,7 +42,7 @@ class DemoService(
     private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
     override val events: SharedFlow<ServiceEvent> = mutableEvents
 
-    private var connected = true
+    private var connected = id != ServiceId.SMS
     private val conversations = linkedMapOf<String, Conversation>()
     private val messages = mutableMapOf<String, MutableList<Message>>()
     private var nextId = 1
@@ -51,6 +51,7 @@ class DemoService(
         ServiceId.SIGNAL -> "+15550100000"
         ServiceId.TELEGRAM -> "Demo User"
         ServiceId.WHATSAPP -> "+15550100999"
+        ServiceId.SMS -> "SMS"
     }
 
     init {
@@ -73,6 +74,7 @@ class DemoService(
         attachments = true,
         forwarding = true,
         muting = true,
+        mentions = true,
         disappearingMessages = id != ServiceId.TELEGRAM,
         disappearingDurations = listOf(0, 86_400, 604_800),
     )
@@ -81,6 +83,7 @@ class DemoService(
         ServiceId.SIGNAL -> qrStep()
         ServiceId.TELEGRAM -> SetupStep.Input("api-id", "Telegram API ID", "Create an app at my.telegram.org and enter its API ID.", SetupStep.Input.Field.API_ID, placeholder = "12345678")
         ServiceId.WHATSAPP -> methodChoice()
+        ServiceId.SMS -> SetupStep.Complete("SMS", "SMS uses the Android default SMS app role.")
     }
 
     override suspend fun advanceSetup(step: SetupStep, value: String?): SetupStep {
@@ -222,6 +225,10 @@ class DemoService(
         editMessage(conversation.id, message.id) { it.copy(pinned = pinned) }
     }
 
+    override suspend fun listPinnedMessages(conversation: Conversation): List<Message> = lock.withLock {
+        messages[conversation.id].orEmpty().filter { it.pinned && !it.deleted }.sortedByDescending { it.sentAt }
+    }
+
     override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) {
         update(conversation.id) {
             it.copy(
@@ -324,6 +331,7 @@ class DemoService(
             }
         }
         when (id) {
+            ServiceId.SMS -> Unit
             ServiceId.SIGNAL -> {
                 chat("maya", "Maya Chen", ConversationKind.DIRECT, unread = 2, favourite = true, quoteIndex = 1, lines = arrayOf(
                     Triple(40, "Maya Chen", "Are we still on for tomorrow?"),
@@ -334,6 +342,15 @@ class DemoService(
                 chat("hikers", "Sunday Hikers", ConversationKind.GROUP, members = listOf("Alex", "Sam", "Priya"), lines = arrayOf(
                     Triple(300, "Alex", "Weather looks good for Sunday"),
                     Triple(290, "Priya", "Bringing snacks"),
+                    Triple(289, "Priya", "Flapjacks, crisps, a big bag of satsumas and far too much chocolate for six people on a hill"),
+                    Triple(288, "Priya", "Also a flask of tea, because last time we all regretted not having one at the top of the ridge"),
+                    Triple(287, "Priya", "Does anyone have a spare waterproof? Mine finally gave up after that storm in the Dales last month"),
+                    Triple(286, "Priya", "And should we meet at the car park by the reservoir or the one by the pub? The pub one fills up early"),
+                    Triple(285, "Priya", "Last thing: I can drive three people if anyone needs a lift from town, just let me know by Saturday"),
+                    Triple(284, "Priya", "Actually one more: the forecast says it might be windy on the tops after lunch, so bring a warm layer and a hat"),
+                    Triple(283, "Priya", "And gloves. Last time Sam's hands were frozen by the trig point and we had to share the flask round twice"),
+                    Triple(282, "Priya", "If it's really bad we can do the low route along the river instead and finish at the café by the bridge"),
+                    Triple(281, "Priya", "Right, that's everything. See you all on Sunday, and please don't be late this time, the car park fills up!"),
                     Triple(280, null, "See everyone at 8!"),
                 ))
             }
