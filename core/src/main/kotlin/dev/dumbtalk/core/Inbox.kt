@@ -29,6 +29,11 @@ class ServiceRegistry(val installed: List<MessagingService>) {
             .map { (service, _) -> service }
     }
 
+    /** Asks every service to reconnect now if it's down; see [MessagingService.reconnect]. */
+    suspend fun reconnectAll(networkChanged: Boolean) = coroutineScope {
+        installed.map { service -> async { runCatching { service.reconnect(networkChanged) } } }.awaitAll()
+    }
+
     /** One service failing must not blank the whole inbox. */
     suspend fun inbox(archived: Boolean): ConversationPage = coroutineScope {
         val pages = connected()

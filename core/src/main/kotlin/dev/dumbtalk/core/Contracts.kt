@@ -315,6 +315,12 @@ interface MessagingService {
      */
     suspend fun advanceSetup(step: SetupStep, value: String? = null): SetupStep
     suspend fun disconnect()
+    /**
+     * Reconnects now if the connection is down, instead of waiting out a
+     * retry delay. [networkChanged]: the phone's network just came back or
+     * switched, so even a connection that looks up may be dead.
+     */
+    suspend fun reconnect(networkChanged: Boolean) {}
 
     suspend fun listConversations(archived: Boolean): ConversationPage
     /** Fetches a service-provided conversation photo into local storage when available. */

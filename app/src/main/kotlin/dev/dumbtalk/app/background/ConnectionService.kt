@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.background
 
+import android.app.AlarmManager
 import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
@@ -9,7 +10,11 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.ServiceInfo
+import android.net.ConnectivityManager
+import android.net.Network
 import android.os.IBinder
+import android.os.PowerManager
+import android.os.SystemClock
 import android.util.Log
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.MainActivity
@@ -19,15 +24,23 @@ import dev.dumbtalk.core.ServiceId
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Keeps the app process — and with it the Signal, Telegram and WhatsApp
  * connections — alive in the background. None of the three will push to a
  * linked device without a server, so a held-open connection is how messages
  * arrive. Its ongoing notification is silent and shows what's connected.
+ *
+ * Connections are retried at once when the network comes back or changes,
+ * and a [Watchdog] alarm, which fires even in Doze, restarts this service if
+ * it was killed and reconnects anything that dropped while the phone slept.
  */
 class ConnectionService : Service() {
     private var watcher: Job? = null
+    private val network = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = reconnect(networkChanged = true)
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -53,11 +66,20 @@ class ConnectionService : Service() {
                 }
             }.collect { text -> manager.notify(ID, notification(text)) }
         }
+        // Called at once with the current network, then on each change.
+        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network) }
+        Watchdog.schedule(this)
+    }
+
+    private fun reconnect(networkChanged: Boolean) {
+        val app = application as DumbTalkApp
+        app.scope.launch { app.registry.reconnectAll(networkChanged) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network) }
         watcher?.cancel()
         super.onDestroy()
     }
@@ -83,6 +105,44 @@ class ConnectionService : Service() {
         fun start(context: Context) {
             runCatching { context.startForegroundService(Intent(context, ConnectionService::class.java)) }
                 .onFailure { Log.w("ConnectionService", "could not start", it) }
+        }
+    }
+}
+
+/**
+ * Every 15 minutes, even in Doze: makes sure [ConnectionService] is running
+ * and every network is connected, holding the CPU awake while they reconnect.
+ */
+class Watchdog : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        schedule(context)
+        ConnectionService.start(context)
+        val app = context.applicationContext as? DumbTalkApp ?: return
+        val wake = context.getSystemService(PowerManager::class.java)
+            .newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "DumbTalk:watchdog")
+        wake.acquire(WAKE_MILLIS)
+        val pending = goAsync()
+        app.scope.launch {
+            try {
+                withTimeoutOrNull(WAKE_MILLIS) { app.registry.reconnectAll(networkChanged = false) }
+            } finally {
+                if (wake.isHeld) wake.release()
+                pending.finish()
+            }
+        }
+    }
+
+    companion object {
+        private const val INTERVAL = 15 * 60 * 1000L
+        private const val WAKE_MILLIS = 20_000L
+
+        /** Sets the next check; Doze may delay it, but it still fires. */
+        fun schedule(context: Context) {
+            val intent = PendingIntent.getBroadcast(
+                context, 0, Intent(context, Watchdog::class.java), PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+            )
+            context.getSystemService(AlarmManager::class.java)
+                .setAndAllowWhileIdle(AlarmManager.ELAPSED_REALTIME_WAKEUP, SystemClock.elapsedRealtime() + INTERVAL, intent)
         }
     }
 }

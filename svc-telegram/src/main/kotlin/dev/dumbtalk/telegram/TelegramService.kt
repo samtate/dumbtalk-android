@@ -535,6 +535,11 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         requireClient().send(TdApi.OpenChat(chatId(conversation)))
     }
 
+    /** TDLib keeps its own connection; a network change tells it to drop dead sockets and reconnect at once. */
+    override suspend fun reconnect(networkChanged: Boolean) {
+        if (networkChanged) client?.post(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
+    }
+
     override suspend fun closeConversation(conversation: Conversation) {
         client?.post(TdApi.CloseChat(chatId(conversation)))
     }

@@ -61,6 +61,7 @@ pub(crate) enum Command {
     StartLink(Reply),
     Connect(Reply),
     Logout(Reply),
+    Reconnect(Reply),
     Chats {
         archived: bool,
         reply: Reply,
@@ -234,6 +235,12 @@ impl SignalClient {
 
     pub fn logout(&self) -> Result<(), BridgeError> {
         self.unit(Command::Logout)
+    }
+
+    /// Reconnects now rather than after the retry wait: the network is back,
+    /// or the watchdog found us offline.
+    pub fn reconnect(&self) -> Result<(), BridgeError> {
+        self.unit(Command::Reconnect)
     }
 
     pub fn chats_json(&self, archived: bool) -> Result<String, BridgeError> {

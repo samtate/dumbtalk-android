@@ -37,6 +37,7 @@ private class FakeBridge : NativeBridge {
     override fun isOnline() = online
     override fun accountJson() = """{"phone":"447000000000"}"""
     override fun logout() = call("logout")
+    override fun reconnect() = call("reconnect")
     override fun chatsJson(archived: Boolean) = """{"chats":[
         {"jid":"c:1","name":"Maya","group":false,"archived":$archived,"pinned":true,"muted":false,"unread":2,"lastTs":5,
          "last":{"id":"m1","chat":"c:1","senderName":"Maya","fromMe":false,"ts":5,"kind":"text","text":"hi","reactions":[]}}],

@@ -111,6 +111,8 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun isOnline() = client.isConnected
     override fun accountJson(): String = client.accountJSON()
     override fun logout() = client.logout()
+    // whatsmeow reconnects by itself once connected; this covers a first connection that failed.
+    override fun reconnect() = client.connect()
     override fun chatsJson(archived: Boolean): String = client.chatsJSON(archived)
     override fun chatJson(chat: String): String = client.chatJSON(chat)
     override fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String =

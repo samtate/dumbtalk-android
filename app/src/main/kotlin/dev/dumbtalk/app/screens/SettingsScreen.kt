@@ -28,6 +28,8 @@ import dev.dumbtalk.app.Screen
 import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
+import dev.dumbtalk.app.background.BackgroundStatus
+import androidx.lifecycle.compose.LifecycleResumeEffect
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.SoftkeyController
@@ -46,6 +48,12 @@ fun SettingsScreen(navigator: Navigator, controller: SoftkeyController) {
     var overviewFocus by rememberSaveable { mutableStateOf("Services") }
     val initialOverviewFocus = remember(page) { overviewFocus }
     val chosen = controller.leftShortcutCode
+    // Rechecked on return from Android's settings, where it's changed.
+    var background by remember { mutableStateOf(BackgroundStatus.of(context)) }
+    LifecycleResumeEffect(Unit) {
+        background = BackgroundStatus.of(context)
+        onPauseOrDispose { }
+    }
     fun preview(code: Int) {
         candidate = code
         controller.cancelLeftShortcutCapture()
@@ -113,6 +121,11 @@ fun SettingsScreen(navigator: Navigator, controller: SoftkeyController) {
                         description = SoftkeyController.keyLabel(chosen), focusRequester = requester.takeIf { initialOverviewFocus == "Left action key" }, highlightFocus = true)
                     if (saved) BasicText("Key setting saved.", style = Type.small)
                     BasicText("Opens the menu shown at the bottom left of the screen.", style = Type.small)
+                    ListButton("Background delivery", { BackgroundStatus.fix(context, background) },
+                        modifier = Modifier.onFocusChanged { if (it.isFocused) overviewFocus = "Background delivery" },
+                        description = background.summary,
+                        focusRequester = requester.takeIf { initialOverviewFocus == "Background delivery" }, highlightFocus = true)
+                    if (!background.ok) BasicText("Select to fix it in Android's settings.", style = Type.small)
                 }
                 KeySetup.CHOOSE -> {
                     BasicText("Current: ${SoftkeyController.keyLabel(chosen)}", style = Type.body)
