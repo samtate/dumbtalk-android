@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -50,7 +51,7 @@ fun Icon(icon: AppIcon, modifier: Modifier = Modifier, size: Dp = 16.dp, color: 
     val path = remember(icon) { PathParser().parsePathString(icon.pathData).toPath() }
     Canvas(modifier.size(size)) {
         val unit = this.size.minDimension / 24f
-        scale(unit, pivot = androidx.compose.ui.geometry.Offset.Zero) {
+        scale(unit, pivot = Offset.Zero) {
             drawPath(path, color, style = Stroke(width = 1.8f, cap = StrokeCap.Round, join = StrokeJoin.Round))
         }
     }

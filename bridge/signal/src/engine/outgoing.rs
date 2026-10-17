@@ -6,30 +6,30 @@ use presage::proto::data_message::{self, PinMessage, PollCreate, PollTerminate, 
 impl Engine {
     pub(super) async fn pin_message(self: &Rc<Self>, chat: &str, id: &str, pinned: bool) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let (sent, author) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let (sent, author) = split_id(id)?;
         let author = Uuid::parse_str(author).map_err(fail)?;
         let ts = now_ms();
         let data = if pinned {
             DataMessage { pin_message: Some(PinMessage {
                 target_author_aci_binary: Some(author.as_bytes().to_vec()),
-                target_sent_timestamp: sent.parse().ok(),
+                target_sent_timestamp: sent,
                 pin_duration: Some(pin_message::PinDuration::PinDurationForever(true)),
             }), timestamp: Some(ts), group_v2: Self::group_context(&thread), ..Default::default() }
         } else {
             DataMessage { unpin_message: Some(UnpinMessage {
                 target_author_aci_binary: Some(author.as_bytes().to_vec()),
-                target_sent_timestamp: sent.parse().ok(),
+                target_sent_timestamp: sent,
             }), timestamp: Some(ts), group_v2: Self::group_context(&thread), ..Default::default() }
         };
         self.deliver(&thread, data, ts).await?;
         self.db.set_message_pinned(chat, id, pinned, ts as i64, 0).await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 
     pub(super) async fn create_poll(self: &Rc<Self>, chat: &str, question: &str, options_json: &str, multiple: bool) -> Result<String, BridgeError> {
         let thread = thread_of(chat)?;
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
+        let me = self.me()?;
         let options: Vec<String> = serde_json::from_str(options_json).map_err(fail)?;
         if options.len() < 2 {
             return Err(fail("A poll needs at least two options"));
@@ -40,20 +40,11 @@ impl Engine {
             required_protocol_version: Some(ProtocolVersion::Polls as u32),
             timestamp: Some(ts),
             group_v2: Self::group_context(&thread),
-            profile_key: Some(self.manager()?.registration_data().profile_key().get_bytes().to_vec()),
+            profile_key: Some(self.profile_key()?),
             ..Default::default()
         };
         self.deliver(&thread, data, ts).await?;
-        let row = MessageRow {
-            chat: chat.to_string(),
-            id: message_id(ts, &me),
-            sender: me.clone(),
-            from_me: true,
-            ts: ts as i64,
-            kind: "poll".into(),
-            status: "sent".into(),
-            ..Default::default()
-        };
+        let row = sent_row(chat, ts, &me, "poll", None);
         self.db.put_message(&row).await.map_err(fail)?;
         self.db.put_poll(chat, &row.id, question, &options, multiple).await.map_err(fail)?;
         self.emit("chats", json!({}));
@@ -62,8 +53,8 @@ impl Engine {
 
     pub(super) async fn vote_poll(self: &Rc<Self>, chat: &str, id: &str, options_json: &str) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
-        let (sent, author) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let me = self.me()?;
+        let (sent, author) = split_id(id)?;
         let author = Uuid::parse_str(author).map_err(fail)?;
         let options: Vec<u32> = serde_json::from_str(options_json).map_err(fail)?;
         // Each new vote must count higher than our last for others to take it.
@@ -73,7 +64,7 @@ impl Engine {
         let data = DataMessage {
             poll_vote: Some(PollVote {
                 target_author_aci_binary: Some(author.as_bytes().to_vec()),
-                target_sent_timestamp: sent.parse().ok(),
+                target_sent_timestamp: sent,
                 option_indexes: options.clone(),
                 vote_count: Some(count as u32),
             }),
@@ -84,16 +75,16 @@ impl Engine {
         };
         self.deliver(&thread, data, ts).await?;
         self.db.set_poll_vote(chat, id, &me, &options, count).await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 
     pub(super) async fn close_poll(self: &Rc<Self>, chat: &str, id: &str) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let (sent, _) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let (sent, _) = split_id(id)?;
         let ts = now_ms();
         let data = DataMessage {
-            poll_terminate: Some(PollTerminate { target_sent_timestamp: sent.parse().ok() }),
+            poll_terminate: Some(PollTerminate { target_sent_timestamp: sent }),
             required_protocol_version: Some(ProtocolVersion::Polls as u32),
             timestamp: Some(ts),
             group_v2: Self::group_context(&thread),
@@ -101,13 +92,33 @@ impl Engine {
         };
         self.deliver(&thread, data, ts).await?;
         self.db.close_poll(chat, id).await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
+    }
+
+    /// Our ACI; sending needs a linked account.
+    pub(super) fn me(&self) -> Result<String, BridgeError> {
+        self.own_aci().ok_or_else(|| fail("Signal is not linked"))
+    }
+
+    /// Our profile key, sent with new messages so people see our name and photo.
+    pub(super) fn profile_key(&self) -> Result<Vec<u8>, BridgeError> {
+        Ok(self.manager()?.registration_data().profile_key().get_bytes().to_vec())
+    }
+
+    /// The message being replied to (none for an empty id), and the quote of it to send.
+    pub(super) async fn quoting(&self, chat: &str, quote_id: &str) -> Result<(Option<MessageRow>, Option<Quote>), BridgeError> {
+        let quoted = if quote_id.is_empty() { None } else { self.db.message(chat, quote_id).await.map_err(fail)? };
+        let quote = quoted.as_ref().and_then(|q| {
+            let (sent, author) = split_id(&q.id).ok()?;
+            Some(Quote { id: sent, author_aci: Some(author.to_string()), text: Some(q.text.clone()), ..Default::default() })
+        });
+        Ok((quoted, quote))
     }
 
     pub(super) fn group_context(thread: &Thread) -> Option<GroupContextV2> {
         match thread {
-            Thread::Group(key) => Some(GroupContextV2 { master_key: Some(key.to_vec()), revision: Some(0), ..Default::default() }),
+            Thread::Group(key) => Some(group_context(key)),
             Thread::Contact(_) => None,
         }
     }
@@ -126,42 +137,23 @@ impl Engine {
         let thread = thread_of(chat)?;
         let spans: Vec<Span> = if spans_json.is_empty() { Vec::new() } else { serde_json::from_str(spans_json).map_err(fail)? };
         let (body, body_ranges) = encode_body(text, &spans);
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
+        let me = self.me()?;
         let ts = now_ms();
-        let quoted = if quote_id.is_empty() { None } else { self.db.message(chat, quote_id).await.map_err(fail)? };
-        let quote = quoted.as_ref().and_then(|q| {
-            let (sent, author) = q.id.split_once(':')?;
-            Some(Quote {
-                id: sent.parse().ok(),
-                author_aci: Some(author.to_string()),
-                text: Some(q.text.clone()),
-                ..Default::default()
-            })
-        });
+        let (quoted, quote) = self.quoting(chat, quote_id).await?;
         let message = DataMessage {
             body: Some(body),
             body_ranges,
             timestamp: Some(ts),
             quote,
             group_v2: Self::group_context(&thread),
-            profile_key: Some(self.manager()?.registration_data().profile_key().get_bytes().to_vec()),
+            profile_key: Some(self.profile_key()?),
             ..Default::default()
         };
         self.deliver(&thread, message, ts).await?;
         let row = MessageRow {
-            chat: chat.to_string(),
-            id: message_id(ts, &me),
-            sender: me.clone(),
-            from_me: true,
-            ts: ts as i64,
-            kind: "text".into(),
             text: text.to_string(),
             ranges: if spans.is_empty() { String::new() } else { serde_json::to_string(&spans).unwrap_or_default() },
-            quote_id: quoted.as_ref().map(|q| q.id.clone()).unwrap_or_default(),
-            quote_sender: quoted.as_ref().map(|q| q.sender.clone()).unwrap_or_default(),
-            quote_text: quoted.as_ref().map(|q| q.text.clone()).unwrap_or_default(),
-            status: "sent".into(),
-            ..Default::default()
+            ..sent_row(chat, ts, &me, "text", quoted.as_ref())
         };
         self.db.put_message(&row).await.map_err(fail)?;
         self.emit("chats", json!({}));
@@ -170,15 +162,15 @@ impl Engine {
 
     pub(super) async fn react(self: &Rc<Self>, chat: &str, id: &str, emoji: &str, remove: bool) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
-        let (sent, author) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let me = self.me()?;
+        let (sent, author) = split_id(id)?;
         let ts = now_ms();
         let message = DataMessage {
             reaction: Some(Reaction {
                 emoji: Some(emoji.to_string()),
                 remove: Some(remove),
                 target_author_aci: Some(author.to_string()),
-                target_sent_timestamp: sent.parse().ok(),
+                target_sent_timestamp: sent,
                 target_author_aci_binary: Uuid::parse_str(author).ok().map(|u| u.as_bytes().to_vec()),
             }),
             timestamp: Some(ts),
@@ -187,16 +179,16 @@ impl Engine {
         };
         self.deliver(&thread, message, ts).await?;
         self.db.set_reaction(chat, id, &me, if remove { "" } else { emoji }).await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 
     pub(super) async fn edit(self: &Rc<Self>, chat: &str, id: &str, text: &str) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let (sent, _) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let (sent, _) = split_id(id)?;
         let ts = now_ms();
         let edit = EditMessage {
-            target_sent_timestamp: sent.parse().ok(),
+            target_sent_timestamp: sent,
             data_message: Some(DataMessage {
                 body: Some(text.to_string()),
                 timestamp: Some(ts),
@@ -206,23 +198,23 @@ impl Engine {
         };
         self.deliver(&thread, ContentBody::EditMessage(edit), ts).await?;
         self.db.edit_message(chat, id, text, "").await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 
     pub(super) async fn delete(self: &Rc<Self>, chat: &str, id: &str) -> Result<(), BridgeError> {
         let thread = thread_of(chat)?;
-        let (sent, _) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+        let (sent, _) = split_id(id)?;
         let ts = now_ms();
         let message = DataMessage {
-            delete: Some(Delete { target_sent_timestamp: sent.parse().ok() }),
+            delete: Some(Delete { target_sent_timestamp: sent }),
             timestamp: Some(ts),
             group_v2: Self::group_context(&thread),
             ..Default::default()
         };
         self.deliver(&thread, message, ts).await?;
         self.db.delete_message(chat, id).await.map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 
@@ -266,7 +258,7 @@ impl Engine {
         let (_, version) = self.db.chat_timer(chat).await.map_err(fail)?;
         self.db.set_chat_timer(chat, seconds, version + 1, true).await.map_err(fail)?;
         self.note_timer(chat, "You", seconds, ts).await?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         self.emit("chats", json!({}));
         Ok(())
     }
@@ -285,7 +277,7 @@ impl Engine {
             "delete" => Type::Delete,
             _ => return Err(fail("Unknown response")),
         };
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
+        let me = self.me()?;
         let own = ServiceId::Aci(Uuid::parse_str(&me).map_err(fail)?.into());
         let ts = now_ms();
         let sync = SyncMessage {
@@ -336,4 +328,27 @@ impl Engine {
             .map(|id| format!("c:{}", id.service_id_string()))
             .ok_or_else(|| fail("That number isn't on Signal"))
     }
+}
+
+/// The stored copy of a message we have just sent, replying to `quoted` if any.
+pub(super) fn sent_row(chat: &str, ts: u64, me: &str, kind: &str, quoted: Option<&MessageRow>) -> MessageRow {
+    MessageRow {
+        chat: chat.to_string(),
+        id: message_id(ts, me),
+        sender: me.to_string(),
+        from_me: true,
+        ts: ts as i64,
+        kind: kind.into(),
+        quote_id: quoted.map(|q| q.id.clone()).unwrap_or_default(),
+        quote_sender: quoted.map(|q| q.sender.clone()).unwrap_or_default(),
+        quote_text: quoted.map(|q| q.text.clone()).unwrap_or_default(),
+        status: "sent".into(),
+        ..Default::default()
+    }
+}
+
+/// A message id's parts: when it was sent (its Signal timestamp) and its author's ACI.
+fn split_id(id: &str) -> Result<(Option<u64>, &str), BridgeError> {
+    let (sent, author) = id.split_once(':').ok_or_else(|| fail("Unknown message"))?;
+    Ok((sent.parse().ok(), author))
 }

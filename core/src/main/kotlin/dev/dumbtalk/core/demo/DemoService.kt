@@ -13,6 +13,7 @@ import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.MessagePage
 import dev.dumbtalk.core.MessagingService
+import dev.dumbtalk.core.Quote
 import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.SearchResult
@@ -20,6 +21,8 @@ import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.ServiceStatus
 import dev.dumbtalk.core.SetupStep
+import java.io.File
+import java.util.Base64
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
@@ -172,7 +175,7 @@ class DemoService(
                 sender = "You",
                 text = text,
                 receipt = Receipt(Receipt.State.SENT),
-                quote = replyTo?.let { dev.dumbtalk.core.Quote(it.sender ?: conversation.title, it.text, it.sentAt) },
+                quote = replyTo?.let { Quote(it.sender ?: conversation.title, it.text, it.sentAt) },
             ).also { messages.getOrPut(conversation.id) { mutableListOf() } += it }
         }
         mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversation.id))
@@ -242,8 +245,8 @@ class DemoService(
 
     /** A 1×1 PNG, enough to exercise the viewer flow. */
     override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String {
-        val file = java.io.File.createTempFile("demo-photo", ".png").apply { deleteOnExit() }
-        file.writeBytes(java.util.Base64.getDecoder().decode(
+        val file = File.createTempFile("demo-photo", ".png").apply { deleteOnExit() }
+        file.writeBytes(Base64.getDecoder().decode(
             "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
         ))
         return file.absolutePath
@@ -327,7 +330,7 @@ class DemoService(
             if (quoteIndex != null) {
                 val list = messages.getValue(conversationId)
                 val quoted = list[quoteIndex]
-                list[list.lastIndex] = list.last().copy(quote = dev.dumbtalk.core.Quote(quoted.sender ?: title, quoted.text, quoted.sentAt, messageId = quoted.id))
+                list[list.lastIndex] = list.last().copy(quote = Quote(quoted.sender ?: title, quoted.text, quoted.sentAt, messageId = quoted.id))
             }
         }
         when (id) {

@@ -239,7 +239,7 @@ fun SoftkeyBar(controller: SoftkeyController, modifier: Modifier = Modifier) {
             .height(26.dp)
             .background(Palette.softkeyBar)
             .padding(horizontal = 6.dp),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         val leftLabel = config.left?.let {
             if (controller.leftShortcutCode == KeyEvent.KEYCODE_UNKNOWN) it.label

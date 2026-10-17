@@ -9,65 +9,75 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.text.BasicText
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
-import dev.dumbtalk.app.ui.LocalControlsEnabled
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.derivedStateOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
+import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import dev.dumbtalk.app.ChatTool
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.Screen
-import dev.dumbtalk.app.ChatTool
-import dev.dumbtalk.core.SearchResult
-import androidx.compose.runtime.saveable.rememberSaveable
 import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.ui.AppIcon
+import dev.dumbtalk.app.ui.Avatar
 import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.Icon
-import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.ListButton
+import dev.dumbtalk.app.ui.LocalControlsEnabled
 import dev.dumbtalk.app.ui.LocalSoftkeys
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.ServiceIcon
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.hasSpoilers
 import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
+import dev.dumbtalk.core.ConversationKind
+import dev.dumbtalk.core.ConversationUpdate
+import dev.dumbtalk.core.Direction
+import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.SearchResult
 import dev.dumbtalk.core.ServiceEvent
+import dev.dumbtalk.core.ServiceId
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.conflate
 import kotlinx.coroutines.flow.filter
 import kotlinx.coroutines.flow.first
@@ -129,7 +139,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     /** Focus is on the request or blocked bar in place of the composer. */
     var barFocused by remember { mutableStateOf(false) }
     /** Messages whose spoilers are shown. */
-    val revealed = remember { androidx.compose.runtime.mutableStateListOf<String>() }
+    val revealed = remember { mutableStateListOf<String>() }
     val mentionFocus = remember { FocusRequester() }
     val listState = rememberLazyListState()
     val messageFocus = remember { FocusRequester() }
@@ -171,10 +181,30 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     }
 
     fun focusInput() = scope.launch { withFrameNanos { }; runCatching { inputFocus.requestFocus() } }
+
+    /**
+     * Selects a message, scrolls it into view and focuses it. Rows added
+     * above the list change its indices, so the scroll is requested for the
+     * next layout, and focus waits until the message is laid out and attached.
+     */
+    suspend fun scrollToAndFocus(id: String) {
+        val index = model.messages.orEmpty().indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: return
+        selectedId = id
+        lastMessageId = id
+        listState.requestScrollToItem(model.listIndex(index))
+        val requester = snapshotFlow {
+            if (listState.layoutInfo.visibleItemsInfo.any { it.key == id }) messageFocusById[id] else null
+        }.first { it != null } ?: return
+        withFrameNanos { }
+        repeat(3) {
+            if (runCatching { requester.requestFocus() }.getOrDefault(false)) return
+            withFrameNanos { }
+        }
+    }
     fun send() = model.send { listState.animateScrollToItem(model.lastIndex) }
     fun returnToBottom() {
         scope.launch {
-            lastMessageId = model.messages?.lastOrNull { it.direction != dev.dumbtalk.core.Direction.SYSTEM }?.id
+            lastMessageId = model.messages?.lastOrNull { it.direction != Direction.SYSTEM }?.id
             listState.scrollToItem(model.lastIndex)
             withFrameNanos { }
             // A tall final photo/video can exceed the viewport. Scroll to its
@@ -230,11 +260,11 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         val firstUnread = if (pendingJump == null) model.firstUnread(unread) else null
         val shown = model.messages.orEmpty()
         val unreadIndex = firstUnread?.let { target -> shown.indexOfFirst { it.id == target.id } } ?: -1
-        val lastRead = if (unreadIndex >= 0) shown.subList(0, unreadIndex).lastOrNull { it.direction != dev.dumbtalk.core.Direction.SYSTEM } else null
+        val lastRead = if (unreadIndex >= 0) shown.subList(0, unreadIndex).lastOrNull { it.direction != Direction.SYSTEM } else null
         selectedId = (lastRead ?: firstUnread ?: shown.lastOrNull())?.id
         lastMessageId = selectedId
         if (pendingJump == null) {
-            if (unreadIndex >= 0) listState.scrollToItem((unreadIndex - 1).coerceAtLeast(0) + if (model.hasMore) 1 else 0)
+            if (unreadIndex >= 0) listState.scrollToItem(model.listIndex((unreadIndex - 1).coerceAtLeast(0)))
             else listState.scrollToItem(model.lastIndex)
         }
         loaded = true
@@ -250,9 +280,14 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             }
     }
 
+    /** Something covers the chat: a panel, a picker, a viewer or a confirmation. */
+    val covered = showDeleteThread || deletingMessage != null || tool != null || pendingJump != null || actionMessageId != null ||
+        showOptions || showPollCreator || votingPoll != null || closingPoll != null || media.overlay != null || emojiFor != null ||
+        forwarding != null || showTimer || groupPanel != null || confirmBlock
+
     // Focus returns to the selected message when a panel closes.
-    LaunchedEffect(loaded, actionMessageId, showOptions, showPollCreator, votingPoll, closingPoll, media.overlay, emojiFor, forwarding, tool, pendingJump, showDeleteThread, deletingMessage, showTimer, groupPanel, confirmBlock) {
-        if (!loaded || showDeleteThread || deletingMessage != null || tool != null || pendingJump != null || actionMessageId != null || showOptions || showPollCreator || votingPoll != null || closingPoll != null || media.overlay != null || emojiFor != null || forwarding != null || showTimer || groupPanel != null || confirmBlock) return@LaunchedEffect
+    LaunchedEffect(loaded, covered) {
+        if (!loaded || covered) return@LaunchedEffect
         withFrameNanos { }
         val control = returnControl
         returnControl = null
@@ -271,9 +306,6 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         findingMessage = true
         try {
             model.revealMessage(target.id, target.sentAt)
-            val targetIndex = model.messages.orEmpty().indexOfFirst { it.id == target.id }
-            selectedId = target.id
-            lastMessageId = target.id
             actionMessageId = null
             showOptions = false
             returnTool = tool
@@ -282,15 +314,10 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             returnControl = null
             findingMessage = false
             withFrameNanos { }
-            listState.requestScrollToItem(targetIndex + if (model.hasMore) 1 else 0)
-            val requester = snapshotFlow {
-                if (listState.layoutInfo.visibleItemsInfo.any { it.key == target.id }) messageFocusById[target.id] else null
-            }.first { it != null }!!
-            withFrameNanos { }
-            requester.requestFocus()
+            scrollToAndFocus(target.id)
             pendingJump = null
         } catch (failure: Exception) {
-            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            if (failure is CancellationException) throw failure
             findingMessage = false
             pendingJump = null
             Toast.makeText(context, failure.message ?: "Could not find this message", Toast.LENGTH_LONG).show()
@@ -302,48 +329,33 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     var actionFocusLabel by remember(actionMessageId) { mutableStateOf<String?>(null) }
     var optionFocusLabel by remember(showOptions) { mutableStateOf<String?>(null) }
 
-    // The centre key does what the focused message is for.
+    /** The request or blocked bar standing in for the composer took or lost focus. */
+    fun onBarFocus(focused: Boolean) {
+        barFocused = focused
+        if (focused) { selectedId = null; composeControl = null }
+    }
+
     fun quoteTarget(message: Message) = message.quote?.messageId?.takeIf { id -> messages.any { it.id == id } }
-    fun centerLabel(message: Message): String {
-        val kind = message.attachments.firstOrNull()?.kind
-        return when {
-            message.deleted -> "Actions"
-            message.poll?.let { !it.closed } == true -> if (message.direction == dev.dumbtalk.core.Direction.OUTGOING) "Actions" else "Vote"
-            message.poll != null -> "Actions"
-            kind == AttachmentKind.AUDIO -> if (AudioPlayer.playing == message.id) "Stop" else "Play"
-            message.visuals().size > 1 -> "View photos"
-            kind == AttachmentKind.IMAGE -> "View photo"
-            kind == AttachmentKind.VIDEO -> "Play video"
-            kind == AttachmentKind.FILE -> "Open"
-            quoteTarget(message) != null -> "Goto Quote"
-            else -> "Actions"
-        }
-    }
     fun jumpTo(id: String) {
-        val index = messages.indexOfFirst { it.id == id }.takeIf { it >= 0 } ?: return
-        selectedId = id
-        lastMessageId = id
-        scope.launch {
-            listState.scrollToItem(index + if (model.hasMore) 1 else 0)
-            withFrameNanos { }
-            withFrameNanos { }
-            runCatching { messageFocus.requestFocus() }
-        }
+        scope.launch { scrollToAndFocus(id) }
     }
-    fun activate(message: Message) {
+    /** The centre key does what the focused message is for: play it, view it, vote, follow its quote, or else its actions. */
+    fun centreAction(message: Message): SoftkeyAction {
         val kind = message.attachments.firstOrNull()?.kind
-        when {
-            message.deleted -> actionMessageId = message.id
-            message.poll?.let { !it.closed } == true -> {
-                if (message.direction == dev.dumbtalk.core.Direction.OUTGOING) actionMessageId = message.id
-                else votingPoll = message
-            }
-            message.poll != null -> actionMessageId = message.id
-            kind == AttachmentKind.AUDIO -> media.togglePlay(message)
-            kind == AttachmentKind.IMAGE || kind == AttachmentKind.VIDEO -> media.open(message)
-            kind == AttachmentKind.FILE -> media.openExternally(message)
-            quoteTarget(message) != null -> jumpTo(quoteTarget(message)!!)
-            else -> actionMessageId = message.id
+        val actions = SoftkeyAction("Actions") { actionMessageId = message.id }
+        val quote = quoteTarget(message)
+        return when {
+            message.deleted -> actions
+            message.poll?.let { !it.closed } == true ->
+                if (message.direction == Direction.OUTGOING) actions else SoftkeyAction("Vote") { votingPoll = message }
+            message.poll != null -> actions
+            kind == AttachmentKind.AUDIO -> SoftkeyAction(if (AudioPlayer.playing == message.id) "Stop" else "Play") { media.togglePlay(message) }
+            kind == AttachmentKind.IMAGE || kind == AttachmentKind.VIDEO -> SoftkeyAction(
+                when { message.visuals().size > 1 -> "View photos"; kind == AttachmentKind.IMAGE -> "View photo"; else -> "Play video" },
+            ) { media.open(message) }
+            kind == AttachmentKind.FILE -> SoftkeyAction("Open") { media.openExternally(message) }
+            quote != null -> SoftkeyAction("Goto Quote") { jumpTo(quote) }
+            else -> actions
         }
     }
 
@@ -404,7 +416,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
 
         showTimer -> TimerPicker(
             conversation.expiration, capabilities.disappearingDurations,
-            onPick = { seconds -> model.update(dev.dumbtalk.core.ConversationUpdate(expiration = seconds)); showTimer = false; showOptions = false },
+            onPick = { seconds -> model.update(ConversationUpdate(expiration = seconds)); showTimer = false; showOptions = false },
             onClose = { showTimer = false },
         )
 
@@ -454,19 +466,19 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             onReact = { emoji -> model.toggleReaction(actionMessage, emoji); actionMessageId = null },
             onReply = { model.startReply(actionMessage); returnFocus = inputFocus; actionMessageId = null },
             onEdit = { model.startEdit(actionMessage); returnFocus = inputFocus; actionMessageId = null },
-            onDelete = { if (conversation.serviceId == dev.dumbtalk.core.ServiceId.SMS) deletingMessage = actionMessage else { model.delete(actionMessage); actionMessageId = null } },
+            onDelete = { if (conversation.serviceId == ServiceId.SMS) deletingMessage = actionMessage else { model.delete(actionMessage); actionMessageId = null } },
             onPin = { model.togglePin(actionMessage); actionMessageId = null },
             onMoreReactions = { emojiFor = EmojiUse.React(actionMessage); actionMessageId = null },
             onForward = { forwarding = actionMessage },
             onChatOptions = { openChatOptions() },
             quote = quoteTarget(actionMessage)?.let { id -> MenuItem("Goto Quote", AppIcon.REPLY) { actionMessageId = null; jumpTo(id) } },
             media = mediaAction(actionMessage)?.let { item -> MenuItem(item.label, item.icon) { actionMessageId = null; item.onClick() } },
-            spoiler = if (dev.dumbtalk.app.ui.hasSpoilers(actionMessage)) {
+            spoiler = if (hasSpoilers(actionMessage)) {
                 if (actionMessage.id in revealed) MenuItem("Hide spoiler", AppIcon.CLOSE) { revealed.remove(actionMessage.id); actionMessageId = null }
                 else MenuItem("Show spoiler", AppIcon.SEARCH) { revealed.add(actionMessage.id); actionMessageId = null }
             } else null,
             pollAction = actionMessage.poll?.takeIf { capabilities.polls && !it.closed }?.let {
-                if (actionMessage.direction == dev.dumbtalk.core.Direction.OUTGOING && capabilities.closingPolls) {
+                if (actionMessage.direction == Direction.OUTGOING && capabilities.closingPolls) {
                     MenuItem("Close poll", AppIcon.POLL) { closingPoll = actionMessage }
                 } else {
                     MenuItem("Vote", AppIcon.POLL) { votingPoll = actionMessage; actionMessageId = null }
@@ -500,23 +512,24 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             conversation,
             focusedLabel = optionFocusLabel,
             onFocused = { optionFocusLabel = it },
-            polls = capabilities.polls && (capabilities.directPolls || conversation.kind == dev.dumbtalk.core.ConversationKind.GROUP || conversation.isNoteToSelf),
             onClose = { if (screen.showOptions) navigator.pop() else showOptions = false },
-            onUpdate = { update ->
-                model.update(update)
-                showOptions = false
-                if (screen.showOptions) {
-                    navigator.pop()
+            items = chatOptionItems(
+                conversation,
+                polls = capabilities.polls && (capabilities.directPolls || conversation.kind == ConversationKind.GROUP || conversation.isNoteToSelf),
+                onUpdate = { update ->
+                    model.update(update)
+                    showOptions = false
+                    if (screen.showOptions) navigator.pop()
+                    // Archiving leaves the chat, too.
                     if (update.archived == true) navigator.pop()
-                } else if (update.archived == true) navigator.pop()
-            },
-            onCreatePoll = { showPollCreator = true },
-            search = capabilities.search, pins = capabilities.pins,
-            onSearch = { tool = ChatTool.SEARCH },
-            onPins = { tool = ChatTool.PINS },
-            deleteThread = capabilities.deleteConversations, onDeleteThread = { showDeleteThread = true },
-            extra = buildList {
-                val group = conversation.kind == dev.dumbtalk.core.ConversationKind.GROUP
+                },
+                onCreatePoll = { showPollCreator = true },
+                search = capabilities.search, pins = capabilities.pins,
+                onSearch = { tool = ChatTool.SEARCH },
+                onPins = { tool = ChatTool.PINS },
+                deleteThread = capabilities.deleteConversations, onDeleteThread = { showDeleteThread = true },
+            ) + buildList {
+                val group = conversation.kind == ConversationKind.GROUP
                 if (capabilities.disappearingMessages && !conversation.isMessageRequest) {
                     add(MenuItem("Disappearing: ${dev.dumbtalk.core.timerLabel(conversation.expiration)}", AppIcon.TIMER) { showTimer = true })
                 }
@@ -560,7 +573,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     // A focused composer button handles the key itself; this is its label.
                     composeControl == ComposeControl.SEND -> SoftkeyAction(if (model.editing != null) "Save" else "Send")
                     composeControl != null -> SoftkeyAction(composeControl!!.label)
-                    selected != null -> SoftkeyAction(centerLabel(selected)) { activate(selected) }
+                    selected != null -> centreAction(selected)
                     else -> SoftkeyAction("Type") { runCatching { inputFocus.requestFocus() } }
                 },
                     right = SoftkeyAction(
@@ -576,7 +589,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             )
             CompositionLocalProvider(LocalControlsEnabled provides (popover == null)) {
             Column(Modifier.fillMaxSize()) {
-                Header(conversation.title, leading = { dev.dumbtalk.app.ui.Avatar(conversation.title, size = 24.dp, noteToSelf = conversation.isNoteToSelf, imagePath = avatarPath) }, trailing = {
+                Header(conversation.title, leading = { Avatar(conversation.title, size = 24.dp, noteToSelf = conversation.isNoteToSelf, imagePath = avatarPath) }, trailing = {
                     // A timer shows the chat's messages disappear.
                     if (conversation.expiration > 0) Icon(AppIcon.TIMER, size = 14.dp, color = Palette.muted, modifier = Modifier.padding(end = 5.dp))
                     ServiceIcon(conversation.serviceId, 18.dp)
@@ -592,31 +605,9 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                             onOpen = { actionMessageId = it.id },
                             onLoadOlder = {
                                 scope.launch {
+                                    // The newest of the older messages, where reading carries on.
                                     val target = model.load(older = true) ?: model.messages?.firstOrNull() ?: return@launch
-                                    selectedId = target.id
-                                    lastMessageId = target.id
-                                    val targetIndex = model.messages.orEmpty().indexOfFirst { it.id == target.id }
-                                    if (targetIndex < 0) return@launch
-                                    val lazyIndex = targetIndex + if (model.hasMore) 1 else 0
-                                    // Prepended rows change LazyColumn's indices. A scrollToItem
-                                    // here can run against the old layout; its keyed anchor then
-                                    // restores the old position on the next measure. Request the
-                                    // position for that measure instead.
-                                    listState.requestScrollToItem(lazyIndex)
-
-                                    // The target must be both measured and attached before focus
-                                    // can move to it. Waiting a fixed number of frames can finish
-                                    // before a large page has been composed.
-                                    val requester = snapshotFlow {
-                                        if (listState.layoutInfo.visibleItemsInfo.any { it.key == target.id })
-                                            messageFocusById[target.id]
-                                        else null
-                                    }.first { it != null } ?: return@launch
-                                    withFrameNanos { }
-                                    repeat(3) {
-                                        if (runCatching { requester.requestFocus() }.getOrDefault(false)) return@launch
-                                        withFrameNanos { }
-                                    }
+                                    scrollToAndFocus(target.id)
                                 }
                             },
                             loadAttachment = { message, attachment -> model.attachmentPath(message, attachment) },
@@ -633,23 +624,15 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         )
                     }
                     if (!model.messages.isNullOrEmpty() && (farFromBottom || bottomRequested)) {
-                        Box(
-                            Modifier.align(Alignment.BottomEnd).padding(8.dp).size(32.dp)
-                                .onFocusChanged {
-                                    bottomFocused = it.isFocused
-                                    if (it.isFocused) { selectedId = null; composeControl = null }
-                                }
-                                .focusProperties { left = messageFocus; up = messageFocus; down = inputFocus }
-                                .focusCard(
-                                    ::returnToBottom, CircleShape,
-                                    SolidColor(if (bottomFocused) Palette.focus else Palette.panel),
-                                    focusRequester = bottomFocus, idleBorder = Palette.muted,
-                                )
-                                .semantics { contentDescription = "Return to bottom" },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(AppIcon.BOTTOM, size = 18.dp, color = if (bottomFocused) Palette.background else Palette.text)
-                        }
+                        JumpToBottomButton(
+                            focused = bottomFocused, focusRequester = bottomFocus, messages = messageFocus, input = inputFocus,
+                            onFocus = { focused ->
+                                bottomFocused = focused
+                                if (focused) { selectedId = null; composeControl = null }
+                            },
+                            onPress = ::returnToBottom,
+                            modifier = Modifier.align(Alignment.BottomEnd),
+                        )
                     }
                 }
                 ComposerNotes(conversation, model)
@@ -659,14 +642,14 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         onAccept = { model.respondToRequest(true) },
                         onBlock = { model.setBlocked(true) { navigator.pop() } },
                         onDelete = { model.respondToRequest(false) { navigator.popToRoot() } },
-                        onFocus = { focused -> barFocused = focused; if (focused) { selectedId = null; composeControl = null } },
+                        onFocus = ::onBarFocus,
                     )
                     conversation.isBlocked -> BlockedBar(conversation, firstFocus = inputFocus, upTo = messageFocus, onUnblock = { model.setBlocked(false) },
-                        onFocus = { focused -> barFocused = focused; if (focused) { selectedId = null; composeControl = null } })
+                        onFocus = ::onBarFocus)
                     else -> {
                 MentionSuggestions(model, nearest = mentionFocus, upTo = messageFocus, inputFocus = inputFocus)
                 if (model.attachments.isNotEmpty()) {
-                    dev.dumbtalk.app.ui.ListButton("${model.attachments.size} attached · edit / remove", { returnControl = ComposeControl.ATTACH; media.openAttach() }, leading = { dev.dumbtalk.app.ui.Icon(AppIcon.ATTACH) })
+                    ListButton("${model.attachments.size} attached · edit / remove", { returnControl = ComposeControl.ATTACH; media.openAttach() }, leading = { Icon(AppIcon.ATTACH) })
                 }
                 ComposerBar(
                     model, capabilities, inputFocus, upTo = if (model.mentionSuggestions.isNotEmpty()) mentionFocus else messageFocus,
@@ -711,6 +694,27 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     }
 }
 
+/** The round button over the newest messages that returns to them. */
+@Composable
+private fun JumpToBottomButton(
+    focused: Boolean, focusRequester: FocusRequester, messages: FocusRequester, input: FocusRequester,
+    onFocus: (Boolean) -> Unit, onPress: () -> Unit, modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier.padding(8.dp).size(32.dp)
+            .onFocusChanged { onFocus(it.isFocused) }
+            .focusProperties { left = messages; up = messages; down = input }
+            .focusCard(
+                onPress, CircleShape, SolidColor(if (focused) Palette.focus else Palette.panel),
+                focusRequester = focusRequester, idleBorder = Palette.muted,
+            )
+            .semantics { contentDescription = "Return to bottom" },
+        contentAlignment = Alignment.Center,
+    ) {
+        Icon(AppIcon.BOTTOM, size = 18.dp, color = if (focused) Palette.background else Palette.text)
+    }
+}
+
 /** Typing notice, send error and reply/edit banner above the composer. */
 @Composable
 private fun ComposerNotes(conversation: Conversation, model: ChatModel) {
@@ -748,6 +752,6 @@ internal sealed interface GroupPanel {
     data object Info : GroupPanel
     data object Rename : GroupPanel
     data object Add : GroupPanel
-    data class Remove(val member: dev.dumbtalk.core.Member) : GroupPanel
+    data class Remove(val member: Member) : GroupPanel
     data object Leave : GroupPanel
 }

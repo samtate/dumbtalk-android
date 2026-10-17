@@ -1,21 +1,7 @@
 package dev.dumbtalk.app.screens
 
-import androidx.compose.ui.focus.focusProperties
-import androidx.compose.ui.focus.focusRequester
-import androidx.compose.foundation.relocation.bringIntoViewRequester
-import dev.dumbtalk.app.ui.attachmentLine
-import dev.dumbtalk.core.AttachmentKind
-import dev.dumbtalk.app.media.AudioPlayer
-import androidx.compose.ui.text.buildAnnotatedString
-import dev.dumbtalk.app.ui.receiptMark
-import dev.dumbtalk.app.ui.assignTints
-import dev.dumbtalk.app.ui.serviceColor
-import dev.dumbtalk.app.ui.avatarTint
-import androidx.compose.ui.graphics.lerp
-import androidx.compose.ui.graphics.Color
-import dev.dumbtalk.app.ui.forDisplay
-import androidx.compose.foundation.border
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -28,41 +14,63 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.withFrameNanos
-import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.graphics.lerp
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
-import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.AnnotatedString
+import androidx.compose.ui.text.buildAnnotatedString
+import androidx.compose.ui.text.font.FontStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.ui.CenteredMessage
-import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Palette
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.assignTints
+import dev.dumbtalk.app.ui.attachmentLine
+import dev.dumbtalk.app.ui.avatarTint
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.forDisplay
 import dev.dumbtalk.app.ui.messageSummary
+import dev.dumbtalk.app.ui.receiptMark
+import dev.dumbtalk.app.ui.serviceColor
+import dev.dumbtalk.app.ui.styledText
+import dev.dumbtalk.core.Attachment
+import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Message
+import java.net.URI
 import java.time.Instant
 import java.time.LocalDate
 import java.time.ZoneId
@@ -83,8 +91,8 @@ internal fun MessageList(
     onSelect: (Message) -> Unit,
     onOpen: (Message) -> Unit,
     onLoadOlder: () -> Unit,
-    loadAttachment: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+    loadAttachment: suspend (Message, Attachment) -> String,
+    loadThumbnail: suspend (Message, Attachment) -> String?,
     /** Focus target for D-pad down from the newest message: the message box. */
     belowLast: FocusRequester,
     focusByMessageId: SnapshotStateMap<String, FocusRequester>,
@@ -125,7 +133,7 @@ internal fun MessageList(
     // The message at the top of the screen keeps its sender's name in view: when
     // the name above it (or above the start of their run) has scrolled off, it
     // is pinned to the top of the list instead.
-    val density = androidx.compose.ui.platform.LocalDensity.current
+    val density = LocalDensity.current
     val pinnedIndex by remember(messages, hasMore) {
         androidx.compose.runtime.derivedStateOf {
             val visible = listState.layoutInfo.visibleItemsInfo.filter { it.key != "older" }
@@ -156,7 +164,7 @@ internal fun MessageList(
         itemsIndexed(messages, key = { _, message -> message.id }) { index, message ->
             val itemFocus = remember(message.id) { FocusRequester() }
             // The whole row (day, name, bubble) scrolls into view with a focused message, not just its bubble.
-            val itemView = remember(message.id) { androidx.compose.foundation.relocation.BringIntoViewRequester() }
+            val itemView = remember(message.id) { BringIntoViewRequester() }
             DisposableEffect(message.id, itemFocus) {
                 focusByMessageId[message.id] = itemFocus
                 onDispose { if (focusByMessageId[message.id] === itemFocus) focusByMessageId.remove(message.id) }
@@ -252,10 +260,10 @@ private fun Bubble(
     message: Message,
     tint: Color,
     tintOf: (String) -> Color,
-    loadAttachment: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+    loadAttachment: suspend (Message, Attachment) -> String,
+    loadThumbnail: suspend (Message, Attachment) -> String?,
     time: String,
-    maxWidth: androidx.compose.ui.unit.Dp,
+    maxWidth: Dp,
     focusRequester: FocusRequester?,
     itemFocusRequester: FocusRequester,
     onFocus: () -> Unit,
@@ -339,17 +347,17 @@ private fun Bubble(
             }
             // The caption or text; a photo or file with none needs no extra line.
             val label = when {
-                message.deleted -> androidx.compose.ui.text.AnnotatedString("This message was deleted")
-                message.text != null -> dev.dumbtalk.app.ui.styledText(message.text!!, message.spans, revealed)
+                message.deleted -> AnnotatedString("This message was deleted")
+                message.text != null -> styledText(message.text!!, message.spans, revealed)
                 message.attachments.isNotEmpty() || line != null -> null
-                else -> androidx.compose.ui.text.AnnotatedString(messageSummary(message).forDisplay())
+                else -> AnnotatedString(messageSummary(message).forDisplay())
             }
             if (label != null) {
                 BasicText(
                     label,
                     style = Type.body.copy(
                         color = if (italic) Palette.muted else Palette.text,
-                        fontStyle = if (italic) androidx.compose.ui.text.font.FontStyle.Italic else null,
+                        fontStyle = if (italic) FontStyle.Italic else null,
                     ),
                     // A caption sits clear of the photo or video above it.
                     modifier = if (visuals.isNotEmpty()) Modifier.padding(top = 6.dp) else Modifier,
@@ -394,4 +402,4 @@ private fun Bubble(
 
 /** The host of a link, without "www.", for the line under a link preview. */
 internal fun linkHost(url: String): String? =
-    runCatching { java.net.URI(url.trim()).host }.getOrNull()?.removePrefix("www.")?.ifBlank { null }
+    runCatching { URI(url.trim()).host }.getOrNull()?.removePrefix("www.")?.ifBlank { null }

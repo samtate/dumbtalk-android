@@ -1,8 +1,5 @@
 package dev.dumbtalk.app.screens
 
-import dev.dumbtalk.app.ui.receiptMark
-import dev.dumbtalk.app.ui.Fonts
-import dev.dumbtalk.app.ui.forDisplay
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +20,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
@@ -44,9 +42,9 @@ import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.R
 import dev.dumbtalk.app.Screen
 import dev.dumbtalk.app.ui.AppIcon
-import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Avatar
 import dev.dumbtalk.app.ui.CenteredMessage
+import dev.dumbtalk.app.ui.Fonts
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.Icon
 import dev.dumbtalk.app.ui.ListButton
@@ -56,9 +54,12 @@ import dev.dumbtalk.app.ui.ServiceIcon
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.SoftkeyController
 import dev.dumbtalk.app.ui.Softkeys
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.forDisplay
 import dev.dumbtalk.app.ui.messageSummary
+import dev.dumbtalk.app.ui.receiptMark
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Direction
@@ -152,7 +153,7 @@ fun ConversationList(
 
 @Composable
 fun ConversationRow(app: DumbTalkApp, conversation: Conversation, onOpen: () -> Unit, onFocus: () -> Unit, focusRequester: FocusRequester? = null) {
-    val avatarPath by androidx.compose.runtime.produceState(conversation.avatarPath, conversation.id) {
+    val avatarPath by produceState(conversation.avatarPath, conversation.id) {
         value = runCatching { app.registry.forConversation(conversation).conversationAvatar(conversation) }.getOrNull() ?: conversation.avatarPath
     }
     Row(

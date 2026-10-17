@@ -1,17 +1,21 @@
 package dev.dumbtalk.signal
 
 import android.content.Context
+import android.graphics.BitmapFactory
 import android.util.Log
+import dev.dumbtalk.core.Conversation
+import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.OutgoingAttachment
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.SetupStep
 import dev.dumbtalk.core.bridge.BridgeException
 import dev.dumbtalk.core.bridge.BridgeService
 import dev.dumbtalk.core.bridge.NativeBridge
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import org.json.JSONObject
 import uniffi.sigbridge.Listener
 import uniffi.sigbridge.SignalClient
-import java.io.File
 
 /**
  * Signal as a linked device, through the Rust bridge on presage. Signal
@@ -35,19 +39,19 @@ class SignalService(context: Context, dataDir: File, deviceName: String, scope: 
         }) { client.connect() }
     }
 
-    override suspend fun sendAttachments(conversation: dev.dumbtalk.core.Conversation, files: List<dev.dumbtalk.core.OutgoingAttachment>, caption: String?, replyTo: dev.dumbtalk.core.Message?) {
+    override suspend fun sendAttachments(conversation: Conversation, files: List<OutgoingAttachment>, caption: String?, replyTo: Message?) {
         val encoded = org.json.JSONArray()
         files.forEach { file ->
-            val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            if (file.mimeType.startsWith("image/")) android.graphics.BitmapFactory.decodeFile(file.path, bounds)
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            if (file.mimeType.startsWith("image/")) BitmapFactory.decodeFile(file.path, bounds)
             encoded.put(JSONObject().put("path", file.path).put("mime", file.mimeType)
                 .put("width", bounds.outWidth.takeIf { it > 0 }).put("height", bounds.outHeight.takeIf { it > 0 }))
         }
         bridge { client.sendMediaBatch(conversation.remoteId, encoded.toString(), caption.orEmpty(), replyTo?.id.orEmpty()) }
     }
 
-    override suspend fun sendAttachment(conversation: dev.dumbtalk.core.Conversation, path: String, mimeType: String, caption: String?) =
-        sendAttachments(conversation, listOf(dev.dumbtalk.core.OutgoingAttachment(path, mimeType)), caption)
+    override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) =
+        sendAttachments(conversation, listOf(OutgoingAttachment(path, mimeType)), caption)
 
     /** Reactions name people by ACI; their chat is "c:<aci>". */
     override fun personChat(personId: String) = if (personId.contains(':')) personId else "c:$personId"

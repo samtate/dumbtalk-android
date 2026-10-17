@@ -1,12 +1,12 @@
 package dev.dumbtalk.app
 
-import dev.dumbtalk.app.sms.SmsService
-import dev.dumbtalk.app.media.MediaFiles
-import dev.dumbtalk.app.ui.Fonts
 import android.app.Application
 import android.os.Build
 import dev.dumbtalk.app.background.ConnectionService
 import dev.dumbtalk.app.background.MessageNotifier
+import dev.dumbtalk.app.media.MediaFiles
+import dev.dumbtalk.app.sms.SmsService
+import dev.dumbtalk.app.ui.Fonts
 import dev.dumbtalk.core.MessagingService
 import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceRegistry
@@ -14,6 +14,9 @@ import dev.dumbtalk.signal.SignalService
 import dev.dumbtalk.telegram.TelegramConfig
 import dev.dumbtalk.telegram.TelegramService
 import dev.dumbtalk.whatsapp.WhatsAppService
+import java.io.File
+import java.util.Locale
+import java.util.concurrent.ConcurrentHashMap
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -21,8 +24,6 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.flow.buffer
 import kotlinx.coroutines.flow.filterIsInstance
 import kotlinx.coroutines.launch
-import java.io.File
-import java.util.Locale
 
 open class DumbTalkApp : Application() {
     val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
@@ -34,7 +35,7 @@ open class DumbTalkApp : Application() {
         private set
 
     /** Unsent text per conversation id, kept while the app runs. */
-    val drafts = java.util.concurrent.ConcurrentHashMap<String, String>()
+    val drafts = ConcurrentHashMap<String, String>()
 
     /** Robolectric can't build custom font fallback chains. */
     protected open val usePixelFallbackFonts = true

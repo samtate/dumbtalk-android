@@ -21,14 +21,15 @@ import android.util.Log
 import dev.dumbtalk.app.MainActivity
 import dev.dumbtalk.app.R
 import dev.dumbtalk.app.background.MessageNotifier
+import java.io.File
+import java.util.UUID
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import org.json.JSONObject
-import java.io.File
-import java.util.UUID
 
 /** Runs in :sms, so delivery never waits for fonts or any network bridge. */
 class SmsDeliveryReceiver : BroadcastReceiver() {
@@ -43,8 +44,7 @@ class SmsDeliveryReceiver : BroadcastReceiver() {
             put("date", first.timestampMillis)
             put("subscription", intent.getIntExtra("subscription", intent.getIntExtra(SubscriptionManager.EXTRA_SUBSCRIPTION_INDEX, -1)))
         }
-        val pending = goAsync()
-        SmsWork.scope.launch {
+        runInBackground {
             try {
                 // Durable before provider/contact work. Also protects deliveries received
                 // before first unlock, when credential-protected storage is unavailable.
@@ -57,7 +57,7 @@ class SmsDeliveryReceiver : BroadcastReceiver() {
             } catch (failure: Exception) {
                 Log.e("SMS", "Delivery could not be committed", failure)
                 SmsWork.notice(context, "SMS needs attention", "DumbTalk could not store an incoming SMS. Open the app and check SMS permissions.", "sms-error")
-            } finally { pending.finish() }
+            }
         }
     }
 }
@@ -65,10 +65,7 @@ class SmsDeliveryReceiver : BroadcastReceiver() {
 class SmsUnlockReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Intent.ACTION_USER_UNLOCKED && intent.action != Intent.ACTION_BOOT_COMPLETED) return
-        val pending = goAsync()
-        SmsWork.scope.launch {
-            try { SmsWork.drain(context) } finally { pending.finish() }
-        }
+        runInBackground { SmsWork.drain(context) }
     }
 }
 
@@ -76,15 +73,12 @@ class SmsUnlockReceiver : BroadcastReceiver() {
 class UnsupportedMmsReceiver : BroadcastReceiver() {
     override fun onReceive(context: Context, intent: Intent) {
         if (intent.action != Telephony.Sms.Intents.WAP_PUSH_DELIVER_ACTION) return
-        val pending = goAsync()
-        SmsWork.scope.launch {
-            try {
-                intent.getByteArrayExtra("data")?.let { data ->
-                    val directory = File(context.createDeviceProtectedStorageContext().filesDir, "pending-mms").apply { mkdirs() }
-                    File(directory, "${UUID.randomUUID()}.pdu").outputStream().use { it.write(data); it.fd.sync() }
-                }
-                SmsWork.notice(context, "MMS is not supported", "A multimedia message arrived. DumbTalk currently handles plain SMS only.", "sms-mms")
-            } finally { pending.finish() }
+        runInBackground {
+            intent.getByteArrayExtra("data")?.let { data ->
+                val directory = File(context.createDeviceProtectedStorageContext().filesDir, "pending-mms").apply { mkdirs() }
+                File(directory, "${UUID.randomUUID()}.pdu").outputStream().use { it.write(data); it.fd.sync() }
+            }
+            SmsWork.notice(context, "MMS is not supported", "A multimedia message arrived. DumbTalk currently handles plain SMS only.", "sms-mms")
         }
     }
 }
@@ -97,8 +91,7 @@ class SmsResultReceiver : BroadcastReceiver() {
         val part = intent.getIntExtra("part", -1)
         if (row < 0 || part < 0) return
         val result = resultCode
-        val pending = goAsync()
-        SmsWork.scope.launch {
+        runInBackground {
             try {
                 SmsWork.resultLock.withLock {
                     val delivered = intent.action == SmsService.DELIVERED
@@ -125,8 +118,15 @@ class SmsResultReceiver : BroadcastReceiver() {
                     } finally { store.close() }
                 }
             } catch (failure: Exception) { Log.e("SMS", "Could not update SMS result", failure) }
-            finally { pending.finish() }
         }
+    }
+}
+
+/** Runs [work] off the main thread, keeping the broadcast alive until it finishes. */
+private fun BroadcastReceiver.runInBackground(work: suspend () -> Unit) {
+    val pending = goAsync()
+    SmsWork.scope.launch {
+        try { work() } finally { pending.finish() }
     }
 }
 
@@ -149,7 +149,7 @@ class SmsRespondService : Service() {
 }
 
 internal object SmsWork {
-    val scope = CoroutineScope(kotlinx.coroutines.SupervisorJob() + Dispatchers.IO)
+    val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     val resultLock = Mutex()
     private val deliveryLock = Mutex()
     fun pendingDirectory(context: Context) = File(context.createDeviceProtectedStorageContext().filesDir, "pending-sms")

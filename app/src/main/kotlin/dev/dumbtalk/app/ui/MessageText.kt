@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.ui
 
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.AnnotatedString
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
@@ -88,12 +89,12 @@ fun styledText(text: String, spans: List<TextSpan>, revealed: Boolean): Annotate
                 background = when {
                     hidden -> Palette.muted
                     TextSpan.Style.MONO in styles -> Palette.panel
-                    else -> androidx.compose.ui.graphics.Color.Unspecified
+                    else -> Color.Unspecified
                 },
                 color = when {
                     hidden -> Palette.muted
                     TextSpan.Style.MENTION in styles -> Palette.sender
-                    else -> androidx.compose.ui.graphics.Color.Unspecified
+                    else -> Color.Unspecified
                 },
             )
             withStyle(style) { append(if (hidden) withoutSpoilers(piece, listOf(TextSpan(0, piece.length, TextSpan.Style.SPOILER))) else piece.forDisplay()) }

@@ -1,5 +1,6 @@
 package dev.dumbtalk.telegram
 
+import android.util.LruCache
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Contact
@@ -9,30 +10,33 @@ import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ConversationUpdate
 import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
-import dev.dumbtalk.core.TextSpan
-import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.MessagePage
 import dev.dumbtalk.core.MessagingService
+import dev.dumbtalk.core.OutgoingAttachment
+import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.SearchResult
 import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.ServiceStatus
 import dev.dumbtalk.core.SetupStep
+import dev.dumbtalk.core.TextSpan
+import java.io.File
+import java.util.Properties
+import java.util.concurrent.ConcurrentHashMap
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.sync.Semaphore
-import kotlinx.coroutines.sync.withPermit
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
 import org.drinkless.tdlib.TdApi
-import java.io.File
-import java.util.Properties
-import java.util.concurrent.ConcurrentHashMap
 
 /**
  * Where TDLib keeps its data and how this app identifies itself. [apiId] and
@@ -71,7 +75,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     /** chat id → sender id → when the typing notice lapses (ms). */
     private val typing = ConcurrentHashMap<Long, ConcurrentHashMap<Long, Long>>()
     private val mapper = TelegramMapper(this)
-    private val reactionCache = android.util.LruCache<String, Pair<String, List<Reaction>>>(128)
+    private val reactionCache = LruCache<String, Pair<String, List<Reaction>>>(128)
     private val pendingReactions = ConcurrentHashMap.newKeySet<String>()
     private val reactionRequests = Semaphore(3)
 
@@ -221,7 +225,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         messagesChanged(update.chatId)
         // Refresh once the notice lapses so stale "typing…" disappears.
         scope.launch {
-            kotlinx.coroutines.delay(TYPING_MILLIS + 100)
+            delay(TYPING_MILLIS + 100)
             conversationsChanged()
         }
     }
@@ -421,12 +425,18 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
 
     override suspend fun conversationAvatar(conversation: Conversation): String? {
         val chat = chats[chatId(conversation)] ?: return null
-        val photo = synchronized(chat) { chat.photo?.small } ?: return null
-        photo.local.path.takeIf { photo.local.isDownloadingCompleted && it.isNotBlank() }?.let { return it }
-        return runCatching {
-            val downloaded = requireClient().send(TdApi.DownloadFile(photo.id, 1, 0, 0, true))
-            downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
-        }.getOrNull()
+        return synchronized(chat) { chat.photo?.small }?.let { localPath(it) }
+    }
+
+    /** A file's local path, downloading it first when needed; null if it can't be fetched. */
+    private suspend fun localPath(file: TdApi.File): String? =
+        file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
+            ?: runCatching { download(file.id) }.getOrNull()
+
+    /** Downloads a file (at once if already there) and returns its path, or null if it didn't finish. */
+    private suspend fun download(fileId: Int, priority: Int = 1): String? {
+        val file = requireClient().send(TdApi.DownloadFile(fileId, priority, 0, 0, true))
+        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
     }
 
     /** Reactors are "user:<id>" or "chat:<id>", as [TelegramMapper.reactor] keys them. */
@@ -438,11 +448,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             "chat" -> chats[id]?.let { synchronized(it) { it.photo?.small } }
             else -> null
         } ?: return null
-        photo.local.path.takeIf { photo.local.isDownloadingCompleted && it.isNotBlank() }?.let { return it }
-        return runCatching {
-            val downloaded = requireClient().send(TdApi.DownloadFile(photo.id, 1, 0, 0, true))
-            downloaded.local.path.takeIf { downloaded.local.isDownloadingCompleted && it.isNotBlank() }
-        }.getOrNull()
+        return localPath(photo)
     }
 
     private fun inMainList(conversation: Conversation): Boolean =
@@ -506,7 +512,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
                 reactionCache.put(key, signature to people)
                 mutableEvents.emit(ServiceEvent.MessagesChanged(id, conversationId(chat)))
             } catch (failure: Exception) {
-                if (failure is kotlinx.coroutines.CancellationException) throw failure
+                if (failure is CancellationException) throw failure
                 reactionCache.put(key, signature to mapped.reactions)
             } finally { pendingReactions.remove(key) }
         }
@@ -735,18 +741,14 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     }
 
     override suspend fun downloadAttachment(conversation: Conversation, message: Message, attachment: Attachment): String {
-        val file = requireClient().send(TdApi.DownloadFile(attachment.id.toInt(), 32, 0, 0, true))
-        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
-            ?: throw TelegramException(0, "Download didn't finish")
+        return download(attachment.id.toInt(), priority = 32) ?: throw TelegramException(0, "Download didn't finish")
     }
 
     override suspend fun downloadThumbnail(conversation: Conversation, message: Message, attachment: Attachment): String? {
-        val id = attachment.thumbnailId?.toIntOrNull() ?: return null
-        val file = requireClient().send(TdApi.DownloadFile(id, 1, 0, 0, true))
-        return file.local.path.takeIf { file.local.isDownloadingCompleted && it.isNotBlank() }
+        return download(attachment.thumbnailId?.toIntOrNull() ?: return null)
     }
 
-    override suspend fun sendAttachments(conversation: Conversation, files: List<dev.dumbtalk.core.OutgoingAttachment>, caption: String?, replyTo: Message?) {
+    override suspend fun sendAttachments(conversation: Conversation, files: List<OutgoingAttachment>, caption: String?, replyTo: Message?) {
         if (files.size < 2 || files.any { !it.mimeType.startsWith("image/") && !it.mimeType.startsWith("video/") }) {
             return super.sendAttachments(conversation, files, caption, replyTo)
         }

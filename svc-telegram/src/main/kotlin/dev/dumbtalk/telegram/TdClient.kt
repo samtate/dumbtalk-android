@@ -1,10 +1,11 @@
 package dev.dumbtalk.telegram
 
+import android.util.Log
+import kotlin.coroutines.resume
+import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.suspendCancellableCoroutine
 import org.drinkless.tdlib.Client
 import org.drinkless.tdlib.TdApi
-import kotlin.coroutines.resume
-import kotlin.coroutines.resumeWithException
 
 /** A TDLib error turned into an exception the UI can show. */
 class TelegramException(val code: Int, message: String) : Exception(message)
@@ -13,8 +14,8 @@ class TelegramException(val code: Int, message: String) : Exception(message)
 internal class TdClient(onUpdate: (TdApi.Object) -> Unit) {
     private val client: Client = Client.create(
         { update -> onUpdate(update) },
-        { error -> android.util.Log.w(TAG, "update handler failed", error) },
-        { error -> android.util.Log.w(TAG, "TDLib callback failed", error) },
+        { error -> Log.w(TAG, "update handler failed", error) },
+        { error -> Log.w(TAG, "TDLib callback failed", error) },
     )
 
     @Suppress("UNCHECKED_CAST")

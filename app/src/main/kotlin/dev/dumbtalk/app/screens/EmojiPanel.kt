@@ -26,10 +26,11 @@ import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
 import dev.dumbtalk.app.ui.forDisplay
+import dev.dumbtalk.core.Message
 
 /** What a picked emoji is for. */
 sealed interface EmojiUse {
-    data class React(val message: dev.dumbtalk.core.Message) : EmojiUse
+    data class React(val message: Message) : EmojiUse
     data object Compose : EmojiUse
 }
 

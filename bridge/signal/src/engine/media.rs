@@ -90,11 +90,7 @@ impl Engine {
                 if let Some(bytes) = self.store.group_avatar(key).await.map_err(fail)? {
                     Some(bytes)
                 } else {
-                    let context = GroupContextV2 {
-                        master_key: Some(key.to_vec()),
-                        revision: Some(0),
-                        ..Default::default()
-                    };
+                    let context = group_context(&key);
                     let mut manager = self.manager()?;
                     manager
                         .retrieve_group_avatar(context)
@@ -150,7 +146,8 @@ impl Engine {
         Ok(path.display().to_string())
     }
 
-    /// Signal supports multiple attachments in a single DataMessage.
+    /// Sends up to ten files (JSON [{path, mime, width?, height?}]) as one
+    /// message, as Signal allows, with a caption and optional quote.
     pub(super) async fn send_media_batch(
         self: &Rc<Self>,
         chat: &str,
@@ -158,131 +155,14 @@ impl Engine {
         caption: &str,
         quote_id: &str,
     ) -> Result<String, BridgeError> {
-        #[derive(serde::Deserialize)]
-        struct FileSpec {
-            path: String,
-            mime: String,
-            width: Option<u32>,
-            height: Option<u32>,
-        }
-        let files: Vec<FileSpec> = serde_json::from_str(files).map_err(fail)?;
+        let files: Vec<OutgoingFile> = serde_json::from_str(files).map_err(fail)?;
         if files.is_empty() || files.len() > 10 {
             return Err(fail("Choose between 1 and 10 attachments"));
         }
-        let thread = thread_of(chat)?;
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
-        let mut uploads = Vec::new();
-        let mut sizes: Vec<usize> = Vec::new();
-        for file in &files {
-            let data = std::fs::read(&file.path).map_err(fail)?;
-            let spec = AttachmentSpec {
-                content_type: file.mime.clone(),
-                length: data.len(),
-                file_name: std::path::Path::new(&file.path)
-                    .file_name()
-                    .map(|n| n.to_string_lossy().to_string()),
-                preview: None,
-                voice_note: Some(false),
-                borderless: Some(false),
-                width: file.width,
-                height: file.height,
-                caption: None,
-                blur_hash: None,
-            };
-            sizes.push(data.len());
-            uploads.push((spec, data));
-        }
-        let quoted = if quote_id.is_empty() {
-            None
-        } else {
-            self.db.message(chat, quote_id).await.map_err(fail)?
-        };
-        let quote = quoted.as_ref().and_then(|q| {
-            let (sent, author) = q.id.split_once(':')?;
-            Some(Quote {
-                id: sent.parse().ok(),
-                author_aci: Some(author.to_string()),
-                text: Some(q.text.clone()),
-                ..Default::default()
-            })
-        });
-        let manager = self.manager()?;
-        let pointers: Vec<AttachmentPointer> = manager
-            .upload_attachments(uploads)
-            .await
-            .map_err(fail)?
-            .into_iter()
-            .map(|p| p.map_err(|e| fail(format!("Upload failed: {e:?}"))))
-            .collect::<Result<_, _>>()?;
-        let ts = now_ms();
-        self.deliver(
-            &thread,
-            DataMessage {
-                body: (!caption.is_empty()).then(|| caption.to_string()),
-                attachments: pointers.clone(),
-                quote,
-                timestamp: Some(ts),
-                group_v2: Self::group_context(&thread),
-                profile_key: Some(
-                    manager
-                        .registration_data()
-                        .profile_key()
-                        .get_bytes()
-                        .to_vec(),
-                ),
-                ..Default::default()
-            },
-            ts,
-        )
-        .await?;
-        let first = &files[0];
-        let row = MessageRow {
-            chat: chat.into(),
-            id: message_id(ts, &me),
-            sender: me,
-            from_me: true,
-            ts: ts as i64,
-            kind: kind_of(&first.mime).into(),
-            text: caption.into(),
-            mime: first.mime.clone(),
-            filename: pointers[0].file_name.clone().unwrap_or_default(),
-            size: sizes[0] as i64,
-            quote_id: quoted.as_ref().map(|q| q.id.clone()).unwrap_or_default(),
-            quote_sender: quoted
-                .as_ref()
-                .map(|q| q.sender.clone())
-                .unwrap_or_default(),
-            quote_text: quoted.as_ref().map(|q| q.text.clone()).unwrap_or_default(),
-            status: "sent".into(),
-            ..Default::default()
-        };
-        self.db.put_message(&row).await.map_err(fail)?;
-        self.db
-            .set_attachments(
-                chat,
-                &row.id,
-                &pointers
-                    .iter()
-                    .map(|p| p.encode_to_vec())
-                    .collect::<Vec<_>>(),
-            )
-            .await
-            .map_err(fail)?;
-        for (index, file) in files.iter().enumerate() {
-            let key = if index == 0 {
-                row.id.clone()
-            } else {
-                format!("{}-{index}", row.id)
-            };
-            let path = self.media_path(&key, &file.mime);
-            std::fs::create_dir_all(path.parent().expect("attachments dir")).map_err(fail)?;
-            let _ = std::fs::copy(&file.path, path);
-        }
-        self.emit("chats", json!({}));
-        Ok(self.message_json(&row, &[]).await.to_string())
+        self.send_files(chat, &files, caption, quote_id, false).await
     }
 
-    /// Uploads a file and sends it, with an optional caption.
+    /// Sends one file, with an optional caption; a voice note plays inline.
     pub(super) async fn send_media(
         self: &Rc<Self>,
         chat: &str,
@@ -291,74 +171,89 @@ impl Engine {
         caption: &str,
         voice_note: bool,
     ) -> Result<String, BridgeError> {
+        let file = OutgoingFile { path: path.to_string(), mime: mime.to_string(), width: None, height: None };
+        self.send_files(chat, &[file], caption, "", voice_note).await
+    }
+
+    /// Uploads the files, sends them in one message and stores it, keeping
+    /// our copies so they open without downloading them back.
+    async fn send_files(
+        self: &Rc<Self>,
+        chat: &str,
+        files: &[OutgoingFile],
+        caption: &str,
+        quote_id: &str,
+        voice_note: bool,
+    ) -> Result<String, BridgeError> {
         let thread = thread_of(chat)?;
-        let me = self.own_aci().ok_or_else(|| fail("Signal is not linked"))?;
-        let data = std::fs::read(path).map_err(fail)?;
-        let file_name = std::path::Path::new(path)
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string());
-        let spec = AttachmentSpec {
-            content_type: mime.to_string(),
-            length: data.len(),
-            file_name: file_name.clone(),
-            preview: None,
-            voice_note: Some(voice_note),
-            borderless: Some(false),
-            width: None,
-            height: None,
-            caption: None,
-            blur_hash: None,
-        };
-        let manager = self.manager()?;
-        let pointer = manager
-            .upload_attachments(vec![(spec, data.clone())])
+        let me = self.me()?;
+        let mut uploads = Vec::new();
+        for file in files {
+            let data = std::fs::read(&file.path).map_err(fail)?;
+            let spec = AttachmentSpec {
+                content_type: file.mime.clone(),
+                length: data.len(),
+                file_name: std::path::Path::new(&file.path)
+                    .file_name()
+                    .map(|n| n.to_string_lossy().to_string()),
+                preview: None,
+                voice_note: Some(voice_note),
+                borderless: Some(false),
+                width: file.width,
+                height: file.height,
+                caption: None,
+                blur_hash: None,
+            };
+            uploads.push((spec, data));
+        }
+        let sizes: Vec<usize> = uploads.iter().map(|(_, data)| data.len()).collect();
+        let (quoted, quote) = self.quoting(chat, quote_id).await?;
+        let pointers: Vec<AttachmentPointer> = self
+            .manager()?
+            .upload_attachments(uploads)
             .await
             .map_err(fail)?
             .into_iter()
-            .next()
-            .ok_or_else(|| fail("Upload failed"))?
-            .map_err(|e| fail(format!("Upload failed: {e:?}")))?;
+            .map(|p| p.map_err(|e| fail(format!("Upload failed: {e:?}"))))
+            .collect::<Result<_, _>>()?;
         let ts = now_ms();
         let message = DataMessage {
             body: (!caption.is_empty()).then(|| caption.to_string()),
-            attachments: vec![pointer.clone()],
+            attachments: pointers.clone(),
+            quote,
             timestamp: Some(ts),
             group_v2: Self::group_context(&thread),
-            profile_key: Some(
-                manager
-                    .registration_data()
-                    .profile_key()
-                    .get_bytes()
-                    .to_vec(),
-            ),
+            profile_key: Some(self.profile_key()?),
             ..Default::default()
         };
         self.deliver(&thread, message, ts).await?;
+        let first = &files[0];
         let row = MessageRow {
-            chat: chat.to_string(),
-            id: message_id(ts, &me),
-            sender: me,
-            from_me: true,
-            ts: ts as i64,
-            kind: kind_of(mime).into(),
-            text: caption.to_string(),
-            filename: file_name.unwrap_or_default(),
-            mime: mime.to_string(),
-            size: data.len() as i64,
-            status: "sent".into(),
-            ..Default::default()
+            text: caption.into(),
+            mime: first.mime.clone(),
+            filename: pointers[0].file_name.clone().unwrap_or_default(),
+            size: sizes[0] as i64,
+            ..sent_row(chat, ts, &me, kind_of(&first.mime), quoted.as_ref())
         };
         self.db.put_message(&row).await.map_err(fail)?;
-        self.db
-            .set_attachment(chat, &row.id, &pointer.encode_to_vec())
-            .await
-            .map_err(fail)?;
-        // Keep our copy so it opens without downloading it back.
-        let local = self.media_path(&row.id, mime);
-        if std::fs::create_dir_all(local.parent().expect("attachments dir")).is_ok() {
-            let _ = std::fs::write(local, &data);
+        let encoded: Vec<Vec<u8>> = pointers.iter().map(|p| p.encode_to_vec()).collect();
+        self.db.set_attachments(chat, &row.id, &encoded).await.map_err(fail)?;
+        for (index, file) in files.iter().enumerate() {
+            let key = if index == 0 { row.id.clone() } else { format!("{}-{index}", row.id) };
+            let path = self.media_path(&key, &file.mime);
+            std::fs::create_dir_all(path.parent().expect("attachments dir")).map_err(fail)?;
+            let _ = std::fs::copy(&file.path, path);
         }
         self.emit("chats", json!({}));
         Ok(self.message_json(&row, &[]).await.to_string())
     }
+}
+
+/// A file to send: where it is, its type and, for pictures, its size.
+#[derive(serde::Deserialize)]
+struct OutgoingFile {
+    path: String,
+    mime: String,
+    width: Option<u32>,
+    height: Option<u32>,
 }

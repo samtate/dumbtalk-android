@@ -1,14 +1,17 @@
 package dev.dumbtalk.app.ui
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -27,21 +30,20 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.produceState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.runtime.staticCompositionLocalOf
-import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.asImageBitmap
@@ -51,23 +53,24 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
-import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.TextFieldValue
 import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import android.graphics.BitmapFactory
+import dev.dumbtalk.core.ServiceId
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.io.File
-import dev.dumbtalk.core.ServiceId
 
 /**
  * The D-pad focus treatment used everywhere: a card that draws a solid white
@@ -172,7 +175,7 @@ fun initials(value: String): String =
 @Composable
 fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean = false, imagePath: String? = null) {
     val tint = if (noteToSelf) Palette.text else avatarTint(title)
-    val bitmap by produceState<android.graphics.Bitmap?>(null, imagePath) {
+    val bitmap by produceState<Bitmap?>(null, imagePath) {
         value = if (imagePath.isNullOrBlank()) null else withContext(Dispatchers.IO) {
             runCatching { BitmapFactory.decodeFile(File(imagePath).absolutePath) }.getOrNull()
         }
@@ -254,7 +257,7 @@ fun ListButton(
             leading()
             Spacer(Modifier.width(8.dp))
         }
-        androidx.compose.foundation.layout.Column(Modifier.weight(1f)) {
+        Column(Modifier.weight(1f)) {
             BasicText(title, style = Type.label.copy(color = if (inverted) Palette.background else Palette.text), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (description != null) BasicText(description, style = Type.preview.copy(color = if (inverted) Palette.background else Palette.muted), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
@@ -357,6 +360,6 @@ private fun inputModifier(modifier: Modifier, interaction: MutableInteractionSou
 @Composable
 fun CenteredMessage(text: String, modifier: Modifier = Modifier, color: Color = Palette.muted) {
     Box(modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
-        BasicText(text, style = Type.body.copy(color = color, textAlign = androidx.compose.ui.text.style.TextAlign.Center))
+        BasicText(text, style = Type.body.copy(color = color, textAlign = TextAlign.Center))
     }
 }

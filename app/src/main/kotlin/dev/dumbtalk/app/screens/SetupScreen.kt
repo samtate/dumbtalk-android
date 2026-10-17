@@ -32,12 +32,15 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.Navigator
+import dev.dumbtalk.app.sms.SmsService
+import dev.dumbtalk.app.sms.SmsSetupScreen
 import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
@@ -53,8 +56,8 @@ import kotlinx.coroutines.launch
 @Composable
 fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
     val service = app.registry.byId(serviceId)
-    if (service is dev.dumbtalk.app.sms.SmsService) {
-        dev.dumbtalk.app.sms.SmsSetupScreen(service, navigator)
+    if (service is SmsService) {
+        SmsSetupScreen(service, navigator)
         return
     }
     val scope = rememberCoroutineScope()
@@ -176,7 +179,7 @@ private fun OpenInApp(payload: String, requester: FocusRequester) {
 
 /** QR codes need a quiet white border to scan reliably from another phone. */
 @Composable
-fun QrCode(payload: String, size: androidx.compose.ui.unit.Dp = 180.dp) {
+fun QrCode(payload: String, size: Dp = 180.dp) {
     val matrix = remember(payload) { QRCodeWriter().encode(payload, BarcodeFormat.QR_CODE, 0, 0) }
     Canvas(Modifier.size(size).background(Color.White).padding(10.dp)) {
         val cell = this.size.minDimension / matrix.width

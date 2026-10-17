@@ -57,7 +57,10 @@ class ChatModel(
         private set
 
     /** Index of the newest message; the list has a "load older" row first when [hasMore]. */
-    val lastIndex: Int get() = (messages.orEmpty().size - 1 + if (hasMore) 1 else 0).coerceAtLeast(0)
+    val lastIndex: Int get() = listIndex(messages.orEmpty().size - 1).coerceAtLeast(0)
+
+    /** The list row of the [messageIndex]th message, after the "load older" row when there is one. */
+    fun listIndex(messageIndex: Int) = messageIndex + if (hasMore) 1 else 0
 
     private val loadLock = Mutex()
     /** Messages as the service gave them; [messages] has albums joined. */

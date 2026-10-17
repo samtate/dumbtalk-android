@@ -171,7 +171,7 @@ impl Engine {
             self.log(format!("group refresh failed: {error}"));
         }
         self.emit("chats", json!({}));
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         Ok(())
     }
 

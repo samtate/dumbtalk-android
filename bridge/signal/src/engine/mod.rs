@@ -4,6 +4,7 @@ mod groups;
 mod incoming;
 mod media;
 mod outgoing;
+use outgoing::sent_row;
 mod queries;
 
 use crate::db::{Db, MessageRow};
@@ -153,6 +154,20 @@ fn style_code(style: &str) -> Option<i32> {
     } as i32)
 }
 
+/// A group's context for messages to it; recipients fetch the current revision themselves.
+fn group_context(master_key: &[u8; 32]) -> GroupContextV2 {
+    GroupContextV2 { master_key: Some(master_key.to_vec()), revision: Some(0), ..Default::default() }
+}
+
+/// The ACI a body range mentions, if it is a mention.
+fn mentioned(range: &BodyRange) -> Option<String> {
+    match &range.associated_value {
+        Some(AssociatedValue::MentionAci(text)) => aci(Some(text), None),
+        Some(AssociatedValue::MentionAciBinary(bytes)) => aci(None, Some(bytes)),
+        _ => None,
+    }
+}
+
 /// A received body as shown: each mention placeholder (U+FFFC) becomes
 /// "@Name", with mention and style spans moved to match. `name` resolves an ACI.
 fn render_body(body: &str, ranges: &[BodyRange], name: impl Fn(&str) -> String) -> (String, Vec<Span>) {
@@ -160,11 +175,7 @@ fn render_body(body: &str, ranges: &[BodyRange], name: impl Fn(&str) -> String) 
     let mut mentions: Vec<(usize, usize, String)> = ranges
         .iter()
         .filter_map(|range| {
-            let who = match &range.associated_value {
-                Some(AssociatedValue::MentionAci(text)) => aci(Some(text), None),
-                Some(AssociatedValue::MentionAciBinary(bytes)) => aci(None, Some(bytes)),
-                _ => None,
-            }?;
+            let who = mentioned(range)?;
             let start = range.start.unwrap_or(0) as usize;
             let end = (start + range.length.unwrap_or(1) as usize).min(units.len());
             (start <= end).then_some((start, end, who))
@@ -327,6 +338,11 @@ impl Engine {
     fn emit(&self, kind: &str, payload: Value) {
         self.listener
             .on_event(kind.to_string(), payload.to_string());
+    }
+
+    /// Tells the app a chat's messages changed, so an open chat reloads.
+    fn messages_changed(&self, chat: &str) {
+        self.emit("messages", json!({ "chat": chat }));
     }
 
     fn log(&self, message: impl std::fmt::Display) {
@@ -611,11 +627,7 @@ impl Engine {
                 let Ok(mut manager) = self.manager() else {
                     return;
                 };
-                let context = GroupContextV2 {
-                    master_key: Some(key.to_vec()),
-                    revision: Some(0),
-                    ..Default::default()
-                };
+                let context = group_context(&key);
                 if let Err(error) = manager.retrieve_group_avatar(context).await {
                     self.log(format!("group fetch failed: {error}"));
                 }
@@ -669,7 +681,7 @@ impl Engine {
                 match self.db.purge_expired(now_ms() as i64).await {
                     Ok(chats) => {
                         for chat in &chats {
-                            self.emit("messages", json!({ "chat": chat }));
+                            self.messages_changed(chat);
                         }
                         if !chats.is_empty() {
                             self.emit("chats", json!({}));

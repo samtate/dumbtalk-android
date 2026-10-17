@@ -10,6 +10,7 @@ import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.produceState
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.semantics.contentDescription
@@ -20,6 +21,8 @@ import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.forDisplay
 import dev.dumbtalk.core.Reaction
+import java.util.Collections
+import java.util.concurrent.ConcurrentHashMap
 
 /** Each emoji owns its roster. Both rosters and groups wrap on small screens. */
 @OptIn(ExperimentalLayoutApi::class)
@@ -43,7 +46,7 @@ internal fun ReactionChips(reactions: List<Reaction>, tint: Color, loadAvatar: s
                     },
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
                 verticalArrangement = Arrangement.spacedBy(3.dp),
-                itemVerticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                itemVerticalAlignment = Alignment.CenterVertically,
             ) {
                 known.forEach { person ->
                     val photo by produceState(person.avatarPath ?: person.authorId?.let(ReactorPhotos::cached), person.authorId) {
@@ -61,8 +64,8 @@ internal fun ReactionChips(reactions: List<Reaction>, tint: Color, loadAvatar: s
 
 /** Reactors' profile photos, fetched once per person while the app runs. */
 private object ReactorPhotos {
-    private val paths = java.util.concurrent.ConcurrentHashMap<String, String>()
-    private val missing = java.util.Collections.newSetFromMap(java.util.concurrent.ConcurrentHashMap<String, Boolean>())
+    private val paths = ConcurrentHashMap<String, String>()
+    private val missing = Collections.newSetFromMap(ConcurrentHashMap<String, Boolean>())
 
     fun cached(id: String): String? = paths[id]
 

@@ -1,6 +1,7 @@
 package dev.dumbtalk.app.sms
 
 import android.Manifest
+import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.role.RoleManager
 import android.content.ContentUris
@@ -19,14 +20,15 @@ import android.provider.Telephony
 import android.telephony.PhoneNumberUtils
 import android.telephony.SmsManager
 import android.telephony.SubscriptionManager
+import android.util.LruCache
 import androidx.core.content.ContextCompat
 import dev.dumbtalk.app.background.MessageNotifier
 import dev.dumbtalk.core.*
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** Android is the database and transport; no socket, polling loop or bridge. */
 class SmsService(private val context: Context, private val managerForSubscription: ((Int) -> SmsManager)? = null) : MessagingService {
@@ -36,7 +38,7 @@ class SmsService(private val context: Context, private val managerForSubscriptio
     private val changes = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 128)
     override val events: SharedFlow<ServiceEvent> = changes
     private var observing = false
-    private val names = android.util.LruCache<String, Pair<String, String?>>(256)
+    private val names = LruCache<String, Pair<String, String?>>(256)
     private val observer = object : ContentObserver(Handler(Looper.getMainLooper())) {
         override fun onChange(selfChange: Boolean) {
             changes.tryEmit(ServiceEvent.ConversationsChanged(id))
@@ -155,7 +157,7 @@ class SmsService(private val context: Context, private val managerForSubscriptio
         resolver.delete(Telephony.Sms.CONTENT_URI, "thread_id=?", arrayOf(conversation.remoteId))
         store.deleteChat(thread(conversation), ids)
         MessageNotifier(context).clear(conversation.id)
-        val notifications = context.getSystemService(android.app.NotificationManager::class.java)
+        val notifications = context.getSystemService(NotificationManager::class.java)
         ids.forEach { notifications.cancel("sms-failed-$it", 30) }
         changes.emit(ServiceEvent.ConversationsChanged(id))
         changes.emit(ServiceEvent.MessagesChanged(id, conversation.id))

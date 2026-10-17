@@ -3,7 +3,6 @@
 
 use super::*;
 use presage::proto::BodyRange;
-use presage::proto::body_range::AssociatedValue;
 use presage::proto::data_message::{self, PollTerminate};
 use presage::proto::data_message::pin_message::PinDuration;
 
@@ -119,7 +118,7 @@ impl Engine {
                     }
                 }
                 for chat in changed {
-                    self.emit("messages", json!({ "chat": chat }));
+                    self.messages_changed(&chat);
                 }
                 self.emit("chats", json!({}));
             }
@@ -146,7 +145,7 @@ impl Engine {
                     ..Default::default()
                 };
                 self.db.put_message(&row).await.map_err(fail)?;
-                self.emit("messages", json!({ "chat": chat }));
+                self.messages_changed(&chat);
                 self.emit("chats", json!({}));
             }
             _ => {}
@@ -170,7 +169,7 @@ impl Engine {
             .edit_message(chat, &message_id(target, author), &body, &ranges)
             .await
             .map_err(fail)?;
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         self.emit("chats", json!({}));
         Ok(())
     }
@@ -221,12 +220,7 @@ impl Engine {
     pub(super) async fn render(self: &Rc<Self>, body: &str, ranges: &[BodyRange]) -> (String, String) {
         let mut names = HashMap::new();
         for range in ranges {
-            let who = match &range.associated_value {
-                Some(AssociatedValue::MentionAci(text)) => aci(Some(text), None),
-                Some(AssociatedValue::MentionAciBinary(bytes)) => aci(None, Some(bytes)),
-                _ => None,
-            };
-            if let Some(who) = who {
+            if let Some(who) = mentioned(range) {
                 if !names.contains_key(&who) {
                     let name = self.name_for(&who).await;
                     names.insert(who, name);
@@ -289,7 +283,7 @@ impl Engine {
             Type::Spam => self.db.delete_chat(chat).await.map_err(fail)?,
             Type::Unknown => return Ok(()),
         }
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         self.emit("chats", json!({}));
         Ok(())
     }
@@ -309,7 +303,7 @@ impl Engine {
         }
         if message.flags.unwrap_or(0) & data_message::Flags::ExpirationTimerUpdate as u32 != 0 {
             self.take_timer(chat, author, from_me, ts, message, true).await?;
-            self.emit("messages", json!({ "chat": chat }));
+            self.messages_changed(chat);
             self.emit("chats", json!({}));
             return Ok(());
         }
@@ -324,7 +318,7 @@ impl Engine {
                     self.db.set_message_pinned(chat, &message_id(timestamp, &author.to_string()), true, ts as i64, until).await.map_err(fail)?;
                 }
             }
-            self.emit("messages", json!({ "chat": chat }));
+            self.messages_changed(chat);
             return Ok(());
         } else if let Some(unpin) = &message.unpin_message {
             if let (Some(timestamp), Some(bytes)) = (unpin.target_sent_timestamp, unpin.target_author_aci_binary.as_ref()) {
@@ -332,7 +326,7 @@ impl Engine {
                     self.db.set_message_pinned(chat, &message_id(timestamp, &author.to_string()), false, ts as i64, 0).await.map_err(fail)?;
                 }
             }
-            self.emit("messages", json!({ "chat": chat }));
+            self.messages_changed(chat);
             return Ok(());
         } else if let Some(vote) = &message.poll_vote {
             if let (Some(target), Some(bytes)) = (vote.target_sent_timestamp, vote.target_author_aci_binary.as_ref()) {
@@ -341,7 +335,7 @@ impl Engine {
                     self.db.set_poll_vote(chat, &poll, author, &vote.option_indexes, vote.vote_count.unwrap_or(0) as i64).await.map_err(fail)?;
                 }
             }
-            self.emit("messages", json!({ "chat": chat }));
+            self.messages_changed(chat);
             return Ok(());
         } else if let Some(PollTerminate { target_sent_timestamp: Some(target) }) = &message.poll_terminate {
             // Only a poll's author can end it, so the target shares this author.
@@ -401,7 +395,7 @@ impl Engine {
                                 self.note_timer(chat, &who, seconds, ts).await?;
                             }
                         }
-                        self.emit("messages", json!({ "chat": chat }));
+                        self.messages_changed(chat);
                         self.emit("chats", json!({}));
                     }
                 }
@@ -476,7 +470,7 @@ impl Engine {
                 self.emit("incoming", json!({ "chat": chat, "id": row.id }));
             }
         }
-        self.emit("messages", json!({ "chat": chat }));
+        self.messages_changed(chat);
         self.emit("chats", json!({}));
         Ok(())
     }

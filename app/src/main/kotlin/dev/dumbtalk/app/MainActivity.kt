@@ -1,8 +1,10 @@
 package dev.dumbtalk.app
 
 import android.content.Intent
+import android.net.Uri
 import android.os.Bundle
 import android.view.KeyEvent
+import android.widget.Toast
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.foundation.background
@@ -26,19 +28,24 @@ import dev.dumbtalk.app.background.BackgroundPermissions
 import dev.dumbtalk.app.background.MessageNotifier
 import dev.dumbtalk.app.background.Visibility
 import dev.dumbtalk.app.screens.ChatScreen
+import dev.dumbtalk.app.screens.ChatToolsScreen
 import dev.dumbtalk.app.screens.InboxScreen
 import dev.dumbtalk.app.screens.MenuScreen
+import dev.dumbtalk.app.screens.NewGroupScreen
 import dev.dumbtalk.app.screens.NewMessageScreen
 import dev.dumbtalk.app.screens.NewNumberScreen
 import dev.dumbtalk.app.screens.SearchScreen
-import dev.dumbtalk.app.screens.SettingsScreen
 import dev.dumbtalk.app.screens.ServicesScreen
+import dev.dumbtalk.app.screens.SettingsScreen
 import dev.dumbtalk.app.screens.SetupScreen
+import dev.dumbtalk.app.sms.SmsService
+import dev.dumbtalk.app.sms.SmsWork
 import dev.dumbtalk.app.ui.DumbTalkTheme
 import dev.dumbtalk.app.ui.LocalSoftkeys
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyBar
 import dev.dumbtalk.app.ui.SoftkeyController
+import dev.dumbtalk.core.ServiceId
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -77,14 +84,14 @@ class MainActivity : ComponentActivity() {
                                     is Screen.Inbox -> InboxScreen(app, navigator, screen.archived)
                                     is Screen.Menu -> MenuScreen(app, navigator, screen)
                                     is Screen.Chat -> ChatScreen(app, navigator, screen)
-                                    is Screen.ChatTools -> dev.dumbtalk.app.screens.ChatToolsScreen(app, navigator, screen)
+                                    is Screen.ChatTools -> ChatToolsScreen(app, navigator, screen)
                                     Screen.Services -> ServicesScreen(app, navigator)
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
                                     Screen.Settings -> SettingsScreen(navigator, softkeys)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
                                     Screen.NewNumber -> NewNumberScreen(app, navigator)
-                                    Screen.NewGroup -> dev.dumbtalk.app.screens.NewGroupScreen(app, navigator)
+                                    Screen.NewGroup -> NewGroupScreen(app, navigator)
                                 }
                             }
                         }
@@ -101,8 +108,8 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         resumed = true
         val app = application as DumbTalkApp
-        (app.registry.installed.firstOrNull { it is dev.dumbtalk.app.sms.SmsService } as? dev.dumbtalk.app.sms.SmsService)?.refresh()
-        dev.dumbtalk.app.sms.SmsWork.scope.launch { dev.dumbtalk.app.sms.SmsWork.drain(this@MainActivity) }
+        (app.registry.installed.firstOrNull { it is SmsService } as? SmsService)?.refresh()
+        SmsWork.scope.launch { SmsWork.drain(this@MainActivity) }
         openPendingSms()
     }
 
@@ -150,7 +157,7 @@ class MainActivity : ComponentActivity() {
         if (source?.action != Intent.ACTION_SENDTO) return
         val uri = source.data ?: return
         if (uri.scheme !in setOf("sms", "smsto", "mms", "mmsto")) return
-        pendingSms = android.net.Uri.decode(uri.encodedSchemeSpecificPart.substringBefore('?')) to
+        pendingSms = Uri.decode(uri.encodedSchemeSpecificPart.substringBefore('?')) to
             (source.getStringExtra("sms_body") ?: source.getStringExtra(Intent.EXTRA_TEXT))
         source.action = null
         source.data = null
@@ -159,10 +166,10 @@ class MainActivity : ComponentActivity() {
     private fun openPendingSms() {
         val target = pendingSms ?: return
         val app = application as DumbTalkApp
-        val sms = app.registry.installed.filterIsInstance<dev.dumbtalk.app.sms.SmsService>().firstOrNull() ?: return
+        val sms = app.registry.installed.filterIsInstance<SmsService>().firstOrNull() ?: return
         if (!sms.enabled()) {
             navigator.popToRoot()
-            navigator.push(Screen.Setup(dev.dumbtalk.core.ServiceId.SMS))
+            navigator.push(Screen.Setup(ServiceId.SMS))
             return
         }
         pendingSms = null
@@ -172,7 +179,7 @@ class MainActivity : ComponentActivity() {
                 navigator.popToRoot()
                 navigator.openChat(chat)
             }.onFailure {
-                android.widget.Toast.makeText(this@MainActivity, it.message ?: "Could not open SMS", android.widget.Toast.LENGTH_LONG).show()
+                Toast.makeText(this@MainActivity, it.message ?: "Could not open SMS", Toast.LENGTH_LONG).show()
             }
         }
     }

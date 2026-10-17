@@ -7,16 +7,17 @@ import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.Direction
-import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.LinkPreview
 import dev.dumbtalk.core.Member
-import dev.dumbtalk.core.TextSpan
+import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.Poll
 import dev.dumbtalk.core.Quote
 import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.SearchResult
 import dev.dumbtalk.core.ServiceId
+import dev.dumbtalk.core.TextSpan
+import java.util.concurrent.ConcurrentHashMap
 import org.json.JSONArray
 import org.json.JSONObject
 
@@ -94,14 +95,7 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
     fun message(json: JSONObject): Message {
         val kind = json.optString("kind")
         val fromMe = json.optBoolean("fromMe")
-        val attachmentKind = when (kind) {
-            "image" -> AttachmentKind.IMAGE
-            "video" -> AttachmentKind.VIDEO
-            "audio" -> AttachmentKind.AUDIO
-            "document" -> AttachmentKind.FILE
-            "sticker" -> AttachmentKind.IMAGE
-            else -> null
-        }
+        val attachmentKind = attachmentKind(kind)
         return Message(
             id = json.getString("id"),
             conversationId = conversationId(json.getString("chat")),
@@ -153,14 +147,17 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
         )
     }
 
+    /** The attachment a bridge message kind carries, if any. */
+    private fun attachmentKind(kind: String) = when (kind) {
+        "image", "sticker" -> AttachmentKind.IMAGE
+        "video" -> AttachmentKind.VIDEO
+        "audio" -> AttachmentKind.AUDIO
+        "document" -> AttachmentKind.FILE
+        else -> null
+    }
+
     private fun attachment(json: JSONObject): Attachment? {
-        val kind = when (json.optString("kind")) {
-            "image", "sticker" -> AttachmentKind.IMAGE
-            "video" -> AttachmentKind.VIDEO
-            "audio" -> AttachmentKind.AUDIO
-            "document" -> AttachmentKind.FILE
-            else -> return null
-        }
+        val kind = attachmentKind(json.optString("kind")) ?: return null
         return Attachment(json.getString("id"), kind,
             contentType = json.optString("mime").ifBlank { null }, filename = json.optString("filename").ifBlank { null },
             size = json.optLong("size").takeIf { it > 0 }, width = json.optInt("width").takeIf { it > 0 }, height = json.optInt("height").takeIf { it > 0 },
@@ -207,10 +204,10 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
 
 /** Typing notices from a bridge, which lapse unless refreshed. */
 class TypingTracker(private val lapseMillis: Long = 6_000) {
-    private val typing = java.util.concurrent.ConcurrentHashMap<String, java.util.concurrent.ConcurrentHashMap<String, Long>>()
+    private val typing = ConcurrentHashMap<String, ConcurrentHashMap<String, Long>>()
 
     fun update(chat: String, name: String, active: Boolean) {
-        val names = typing.getOrPut(chat) { java.util.concurrent.ConcurrentHashMap() }
+        val names = typing.getOrPut(chat) { ConcurrentHashMap() }
         if (active) names[name] = System.currentTimeMillis() + lapseMillis else names.remove(name)
     }
 

@@ -1,6 +1,5 @@
 package dev.dumbtalk.app.media
 
-import android.util.LruCache
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
@@ -8,8 +7,10 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import android.provider.OpenableColumns
+import android.util.LruCache
 import androidx.core.content.FileProvider
 import java.io.File
+import java.util.UUID
 
 /** Files in and out: viewing attachments in other apps and copying picked files in. */
 object MediaFiles {
@@ -35,7 +36,7 @@ object MediaFiles {
         val name = resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
         } ?: "file"
-        val dir = File(File(context.cacheDir, "outgoing"), java.util.UUID.randomUUID().toString()).apply { mkdirs() }
+        val dir = File(File(context.cacheDir, "outgoing"), UUID.randomUUID().toString()).apply { mkdirs() }
         val file = File(dir, name.replace(Regex("[^A-Za-z0-9._-]"), "_"))
         resolver.openInputStream(uri).use { input ->
             requireNotNull(input) { "Couldn't read that file" }

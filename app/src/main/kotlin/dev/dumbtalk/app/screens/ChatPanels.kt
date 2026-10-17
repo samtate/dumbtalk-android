@@ -1,6 +1,5 @@
 package dev.dumbtalk.app.screens
 
-import dev.dumbtalk.app.ui.forDisplay
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -32,14 +31,15 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dumbtalk.app.ui.AppIcon
-import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
-import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.TextInput
+import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.forDisplay
 import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
@@ -47,6 +47,7 @@ import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationUpdate
 import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.Receipt
 
 // Full-screen panels over a chat: actions for one message, and chat options.
 
@@ -111,7 +112,7 @@ internal fun MessageActions(
                 }
             }
             val actions = buildList {
-                if (capabilities.retries && message.receipt?.state == dev.dumbtalk.core.Receipt.State.FAILED) add(MenuItem("Retry send", AppIcon.SEND, onRetry))
+                if (capabilities.retries && message.receipt?.state == Receipt.State.FAILED) add(MenuItem("Retry send", AppIcon.SEND, onRetry))
                 if (media != null && !message.deleted) add(media)
                 if (spoiler != null && !message.deleted) add(spoiler)
                 if (quote != null && !message.deleted) add(quote)
@@ -152,23 +153,14 @@ internal fun MessageActions(
     }
 }
 
+/** A chat's options ([items], from [chatOptionItems] and more) and, for a group, its members. */
 @Composable
 internal fun ChatOptions(
     conversation: Conversation,
-    polls: Boolean,
+    items: List<MenuItem>,
     onClose: () -> Unit,
-    onUpdate: (ConversationUpdate) -> Unit,
-    onCreatePoll: () -> Unit,
-    search: Boolean = false,
-    pins: Boolean = false,
-    onSearch: () -> Unit = {},
-    onPins: () -> Unit = {},
-    deleteThread: Boolean = false,
-    onDeleteThread: () -> Unit = {},
     focusedLabel: String? = null,
     onFocused: (String) -> Unit = {},
-    /** Further options: timer, blocking, group info. */
-    extra: List<MenuItem> = emptyList(),
 ) {
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
@@ -177,10 +169,7 @@ internal fun ChatOptions(
         Header("Chat options")
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
             BasicText(conversation.title.forDisplay(), style = Type.section, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-            MenuGrid(
-                chatOptionItems(conversation, polls, onUpdate, onCreatePoll, search, pins, onSearch, onPins, deleteThread, onDeleteThread) + extra,
-                requester, focusedLabel, onFocused,
-            )
+            MenuGrid(items, requester, focusedLabel, onFocused)
             if (conversation.kind == ConversationKind.GROUP && conversation.members.isNotEmpty()) {
                 BasicText("MEMBERS", style = Type.section, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
                 conversation.members.forEach { BasicText(it.name.forDisplay(), style = Type.body, modifier = Modifier.padding(vertical = 2.dp)) }

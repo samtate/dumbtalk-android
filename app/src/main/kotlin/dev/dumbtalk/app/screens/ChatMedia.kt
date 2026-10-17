@@ -1,27 +1,26 @@
 package dev.dumbtalk.app.screens
 
 import android.widget.VideoView
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.border
-import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.size
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.verticalScroll
@@ -39,8 +38,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -50,6 +53,8 @@ import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
@@ -57,6 +62,7 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.media.MediaFiles
+import dev.dumbtalk.app.media.MediaMetadata
 import dev.dumbtalk.app.ui.AppIcon
 import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Header
@@ -67,13 +73,14 @@ import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.formatSize
+import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Message
+import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** Images under this size load as soon as they scroll into view. */
 private const val AUTO_LOAD_BYTES = 8L * 1024 * 1024
@@ -82,14 +89,14 @@ fun Message.image() = attachments.firstOrNull { it.kind == AttachmentKind.IMAGE 
 
 /** A fixed aspect slot, including while downloading, decoding or showing an error. */
 @Composable
-fun InlineImage(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, load: suspend (Message, dev.dumbtalk.core.Attachment) -> String) {
+fun InlineImage(message: Message, attachment: Attachment, maxWidth: Dp, load: suspend (Message, Attachment) -> String) {
     InlineVisual(message, attachment, maxWidth, load, video = false)
 }
 
 @Composable
-fun InlineVideo(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp,
-    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+fun InlineVideo(message: Message, attachment: Attachment, maxWidth: Dp,
+    load: suspend (Message, Attachment) -> String,
+    loadThumbnail: suspend (Message, Attachment) -> String?,
 ) {
     InlineVisual(message, attachment, maxWidth, load, video = true, loadThumbnail = loadThumbnail)
 }
@@ -102,11 +109,11 @@ private const val TALLEST = 3f / 4f
 private const val WIDEST = 2f
 
 /** Whether the picture's own shape is known, so it can be cropped to the bubble's rather than fitted. */
-private fun knownShape(attachment: dev.dumbtalk.core.Attachment) =
+private fun knownShape(attachment: Attachment) =
     !attachment.sticker && (attachment.width ?: 0) > 0 && (attachment.height ?: 0) > 0
 
 /** The width and height one photo or video takes in a bubble. */
-internal fun visualSize(attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, minWidth: Dp = 0.dp): Pair<Dp, Dp> {
+internal fun visualSize(attachment: Attachment, maxWidth: Dp, minWidth: Dp = 0.dp): Pair<Dp, Dp> {
     val maxHeight = if (attachment.sticker) 140.dp else 260.dp
     val ratio = if ((attachment.width ?: 0) > 0 && (attachment.height ?: 0) > 0)
         (attachment.width!!.toFloat() / attachment.height!!).let { if (attachment.sticker) it else it.coerceIn(TALLEST, WIDEST) }
@@ -127,26 +134,26 @@ internal fun collageSize(maxWidth: Dp, count: Int): Pair<Dp, Dp> {
 }
 
 /** Whether [attachment] previews without being asked for; large files wait to be opened. */
-private fun autoLoads(attachment: dev.dumbtalk.core.Attachment) =
+private fun autoLoads(attachment: Attachment) =
     (attachment.size ?: 0) <= AUTO_LOAD_BYTES || attachment.localPath != null
 
 /** A photo's or video's preview bitmap, or null while loading or when it waits to be opened. */
 @Composable
-private fun rememberPreview(message: Message, attachment: dev.dumbtalk.core.Attachment,
-    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)?,
+private fun rememberPreview(message: Message, attachment: Attachment,
+    load: suspend (Message, Attachment) -> String,
+    loadThumbnail: (suspend (Message, Attachment) -> String?)?,
 ): Result<ImageBitmap>? {
     val video = attachment.kind == AttachmentKind.VIDEO
     val autoLoad = autoLoads(attachment)
     val image by produceState<Result<ImageBitmap>?>(null, message.id, attachment.id, attachment.localPath, autoLoad) {
         if (autoLoad) value = withContext(Dispatchers.IO) {
             runCatching {
-                val preview = if (video) attachment.thumbnailBase64?.let(dev.dumbtalk.app.media.MediaMetadata::encodedThumbnail) else null
+                val preview = if (video) attachment.thumbnailBase64?.let(MediaMetadata::encodedThumbnail) else null
                 val thumbnailPath = if (video && preview == null) loadThumbnail?.invoke(message, attachment) else null
                 val bitmap = preview ?: thumbnailPath?.let { MediaFiles.thumbnail(it, 640) }
                     ?: if (!video || (attachment.size ?: 0) <= AUTO_LOAD_BYTES) {
                         val path = load(message, attachment)
-                        if (video) dev.dumbtalk.app.media.MediaMetadata.video(path) else MediaFiles.thumbnail(path, 640)
+                        if (video) MediaMetadata.video(path) else MediaFiles.thumbnail(path, 640)
                     } else null
                 requireNotNull(bitmap) { "preview unavailable" }.asImageBitmap()
             }
@@ -157,14 +164,14 @@ private fun rememberPreview(message: Message, attachment: dev.dumbtalk.core.Atta
 
 /** A preview filling [width] × [height]: the picture, or what's happening instead, with a play mark on videos. */
 @Composable
-private fun PreviewBox(message: Message, attachment: dev.dumbtalk.core.Attachment, width: Dp, height: Dp,
-    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)?,
+private fun PreviewBox(message: Message, attachment: Attachment, width: Dp, height: Dp,
+    load: suspend (Message, Attachment) -> String,
+    loadThumbnail: (suspend (Message, Attachment) -> String?)?,
     scale: ContentScale, compact: Boolean = false, content: @Composable () -> Unit = {},
 ) {
     val video = attachment.kind == AttachmentKind.VIDEO
     val image = rememberPreview(message, attachment, load, loadThumbnail)
-    val alpha by androidx.compose.animation.core.animateFloatAsState(if (image?.isSuccess == true) 1f else 0f, label = "media reveal")
+    val alpha by animateFloatAsState(if (image?.isSuccess == true) 1f else 0f, label = "media reveal")
     Box(Modifier.width(width).height(height).background(Palette.panel), contentAlignment = Alignment.Center) {
         val loaded = image?.getOrNull()
         if (loaded != null) Image(loaded, contentDescription = if (video) "Video thumbnail" else "Photo", contentScale = scale,
@@ -182,9 +189,9 @@ private fun PreviewBox(message: Message, attachment: dev.dumbtalk.core.Attachmen
 }
 
 @Composable
-private fun InlineVisual(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp,
-    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String, video: Boolean,
-    loadThumbnail: (suspend (Message, dev.dumbtalk.core.Attachment) -> String?)? = null,
+private fun InlineVisual(message: Message, attachment: Attachment, maxWidth: Dp,
+    load: suspend (Message, Attachment) -> String, video: Boolean,
+    loadThumbnail: (suspend (Message, Attachment) -> String?)? = null,
 ) {
     val (width, height) = visualSize(attachment, maxWidth, captionWidth(message, maxWidth))
     val widened = width > visualSize(attachment, maxWidth).first
@@ -197,9 +204,9 @@ private fun InlineVisual(message: Message, attachment: dev.dumbtalk.core.Attachm
  * many more there are. Opening it shows them all.
  */
 @Composable
-fun MediaCollage(message: Message, visuals: List<dev.dumbtalk.core.Attachment>, maxWidth: Dp,
-    load: suspend (Message, dev.dumbtalk.core.Attachment) -> String,
-    loadThumbnail: suspend (Message, dev.dumbtalk.core.Attachment) -> String?,
+fun MediaCollage(message: Message, visuals: List<Attachment>, maxWidth: Dp,
+    load: suspend (Message, Attachment) -> String,
+    loadThumbnail: suspend (Message, Attachment) -> String?,
 ) {
     val gap = 2.dp
     val (width, height) = collageSize(maxWidth, visuals.size)
@@ -215,7 +222,7 @@ fun MediaCollage(message: Message, visuals: List<dev.dumbtalk.core.Attachment>, 
             }
         }
     }
-    val spaced = androidx.compose.foundation.layout.Arrangement.spacedBy(gap)
+    val spaced = Arrangement.spacedBy(gap)
     Box(Modifier.width(width).height(height).semantics { contentDescription = "${visuals.size} photos and videos" }) {
         when (visuals.size) {
             2 -> Row(horizontalArrangement = spaced) { Tile(0, half, height); Tile(1, half, height) }
@@ -234,10 +241,10 @@ fun MediaCollage(message: Message, visuals: List<dev.dumbtalk.core.Attachment>, 
 
 /** Pixel columns show actual amplitudes; elapsed time and colour follow playback. */
 @Composable
-fun InlineAudio(message: Message, attachment: dev.dumbtalk.core.Attachment, maxWidth: Dp, load: suspend (Message, dev.dumbtalk.core.Attachment) -> String) {
-    val metadata by produceState<dev.dumbtalk.app.media.MediaMetadata.Audio?>(null, message.id, attachment.id) {
+fun InlineAudio(message: Message, attachment: Attachment, maxWidth: Dp, load: suspend (Message, Attachment) -> String) {
+    val metadata by produceState<MediaMetadata.Audio?>(null, message.id, attachment.id) {
         if ((attachment.size ?: 0) <= AUTO_LOAD_BYTES || attachment.localPath != null) {
-            value = withContext(Dispatchers.IO) { runCatching { dev.dumbtalk.app.media.MediaMetadata.audio(load(message, attachment)) }.getOrNull() }
+            value = withContext(Dispatchers.IO) { runCatching { MediaMetadata.audio(load(message, attachment)) }.getOrNull() }
         }
     }
     val playing = AudioPlayer.playing == message.id
@@ -249,9 +256,9 @@ fun InlineAudio(message: Message, attachment: dev.dumbtalk.core.Attachment, maxW
     val duration = attachment.durationMillis ?: metadata?.duration?.takeIf { it > 0 } ?: if (playing) AudioPlayer.durationMillis else 0L
     val samples = attachment.waveform.ifEmpty { metadata?.peaks.orEmpty() }
     val progress = if (duration > 0 && playing) (elapsed.toFloat() / duration).coerceIn(0f, 1f) else 0f
-    androidx.compose.foundation.layout.Row(Modifier.width(minOf(maxWidth, 230.dp)).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+    Row(Modifier.width(minOf(maxWidth, 230.dp)).padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
         Icon(if (playing) AppIcon.STOP else AppIcon.PLAY, size = 20.dp)
-        androidx.compose.foundation.Canvas(Modifier.weight(1f).height(32.dp).padding(horizontal = 6.dp)) {
+        Canvas(Modifier.weight(1f).height(32.dp).padding(horizontal = 6.dp)) {
             val columns = 32
             val pitch = size.width / columns
             val unit = 3.dp.toPx()
@@ -260,7 +267,7 @@ fun InlineAudio(message: Message, attachment: dev.dumbtalk.core.Attachment, maxW
                 val blocks = (1 + sample * 7 / 255).coerceIn(1, 8)
                 val top = (size.height - blocks * unit) / 2
                 val color = if (i.toFloat() / columns < progress) Palette.send else Palette.muted
-                repeat(blocks) { j -> drawRect(color, androidx.compose.ui.geometry.Offset(i * pitch, top + j * unit), androidx.compose.ui.geometry.Size((pitch - 1.dp.toPx()).coerceAtLeast(1f), unit - 1.dp.toPx())) }
+                repeat(blocks) { j -> drawRect(color, Offset(i * pitch, top + j * unit), Size((pitch - 1.dp.toPx()).coerceAtLeast(1f), unit - 1.dp.toPx())) }
             }
         }
         BasicText(if (playing) clock(elapsed) else if (duration > 0) clock(duration) else "–:––", style = Type.small)

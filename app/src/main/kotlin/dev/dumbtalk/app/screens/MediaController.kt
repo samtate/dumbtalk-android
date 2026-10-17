@@ -20,18 +20,19 @@ import androidx.core.content.FileProvider
 import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.media.MediaFiles
 import dev.dumbtalk.app.media.VoiceRecorder
-import dev.dumbtalk.core.OutgoingAttachment
+import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.AttachmentKind
 import dev.dumbtalk.core.Message
+import dev.dumbtalk.core.OutgoingAttachment
+import java.io.File
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
-import java.io.File
 
 /** A full-screen media step over the chat. */
 sealed interface MediaOverlay {
-    data class Photo(val path: String, val message: Message, val attachments: List<dev.dumbtalk.core.Attachment>, val index: Int) : MediaOverlay
+    data class Photo(val path: String, val message: Message, val attachments: List<Attachment>, val index: Int) : MediaOverlay
     data class Video(val path: String, val mime: String?) : MediaOverlay
     /** Choose a file or take a photo, then send it with the draft as caption. */
     data object Attach : MediaOverlay
