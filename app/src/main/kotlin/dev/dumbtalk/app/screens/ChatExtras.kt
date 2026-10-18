@@ -22,6 +22,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import dev.dumbtalk.app.ui.AppIcon
@@ -29,6 +30,7 @@ import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
 import dev.dumbtalk.app.ui.MenuTile
+import dev.dumbtalk.app.ui.moveFocusOn
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
@@ -91,9 +93,9 @@ internal fun RequestBar(
             modifier = Modifier.padding(horizontal = 5.dp),
         )
         Row(Modifier.onFocusChanged { onFocus(it.hasFocus) }, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-            MenuTile("Accept", AppIcon.SEND, onAccept, Modifier.weight(1f).focusProperties { up = upTo }, focusRequester = firstFocus)
-            if (blocking) MenuTile("Block", AppIcon.BLOCK, onBlock, Modifier.weight(1f).focusProperties { up = upTo })
-            MenuTile("Delete", AppIcon.DELETE, onDelete, Modifier.weight(1f).focusProperties { up = upTo })
+            MenuTile("Accept", AppIcon.SEND, onAccept, Modifier.weight(1f).moveFocusOn(Key.DirectionUp, upTo), focusRequester = firstFocus)
+            if (blocking) MenuTile("Block", AppIcon.BLOCK, onBlock, Modifier.weight(1f).moveFocusOn(Key.DirectionUp, upTo))
+            MenuTile("Delete", AppIcon.DELETE, onDelete, Modifier.weight(1f).moveFocusOn(Key.DirectionUp, upTo))
         }
     }
 }
@@ -103,7 +105,7 @@ internal fun RequestBar(
 internal fun BlockedBar(conversation: Conversation, firstFocus: FocusRequester, upTo: FocusRequester, onUnblock: () -> Unit, onFocus: (Boolean) -> Unit = {}) {
     Column(Modifier.fillMaxWidth().padding(4.dp).onFocusChanged { onFocus(it.hasFocus) }, verticalArrangement = Arrangement.spacedBy(4.dp)) {
         BasicText("You blocked ${conversation.title.forDisplay()}.", style = Type.small.copy(color = Palette.muted), modifier = Modifier.padding(horizontal = 5.dp))
-        MenuTile("Unblock", AppIcon.BLOCK, onUnblock, Modifier.fillMaxWidth().focusProperties { up = upTo }, focusRequester = firstFocus)
+        MenuTile("Unblock", AppIcon.BLOCK, onUnblock, Modifier.fillMaxWidth().moveFocusOn(Key.DirectionUp, upTo), focusRequester = firstFocus)
     }
 }
 

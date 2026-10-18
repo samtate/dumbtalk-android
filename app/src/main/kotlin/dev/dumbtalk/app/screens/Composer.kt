@@ -18,6 +18,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.SolidColor
@@ -37,6 +38,7 @@ import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.TextInput
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.moveFocusOn
 import dev.dumbtalk.core.Capabilities
 
 /** The controls beside the message box; each one relabels the centre softkey. */
@@ -90,9 +92,7 @@ fun ComposerBar(
             onValueChange = { field = it; if (it.text != model.draft) model.type(it.text) },
             placeholder = "Message",
             focusRequester = inputFocus,
-            modifier = Modifier.weight(1f).focusProperties {
-                up = upTo
-            }.onFocusChanged { if (it.isFocused) onFocus(null) },
+            modifier = Modifier.weight(1f).moveFocusOn(Key.DirectionUp, upTo).onFocusChanged { if (it.isFocused) onFocus(null) },
             onDone = onSend,
         )
         val sendFocused = remember { mutableStateOf(false) }
@@ -101,7 +101,7 @@ fun ComposerBar(
             Modifier
                 .size(32.dp)
                 .onFocusChanged { sendFocused.value = it.isFocused }
-                .focusProperties { up = upTo }
+                .moveFocusOn(Key.DirectionUp, upTo)
                 .focusCard(
                     onSend,
                     Square,
@@ -130,7 +130,7 @@ private fun ComposerButton(
         Modifier
             .size(32.dp)
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
-            .focusProperties { up = upTo }
+            .moveFocusOn(Key.DirectionUp, upTo)
             .focusCard(onClick = if (LocalControlsEnabled.current) onClick else ({ }), shape = Square, background = Palette.tile, focusRequester = requester, onFocused = onFocused, idleBorder = Palette.tileBorder)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
@@ -158,10 +158,9 @@ fun MentionSuggestions(
             ListButton(
                 "@" + member.name,
                 onClick = { model.pickMention(member); runCatching { inputFocus.requestFocus() } },
-                modifier = Modifier.focusProperties {
-                    if (index == 0) up = upTo
-                    if (last) down = inputFocus
-                },
+                modifier = Modifier
+                    .moveFocusOn(Key.DirectionUp, upTo.takeIf { index == 0 })
+                    .focusProperties { if (last) down = inputFocus },
                 focusRequester = if (last) nearest else null,
                 description = if (member.isAdmin) "Admin" else null,
             )

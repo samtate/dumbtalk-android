@@ -33,6 +33,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
@@ -64,6 +65,7 @@ import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.moveFocusOn
 import dev.dumbtalk.app.ui.hasSpoilers
 import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.AttachmentKind
@@ -678,7 +680,9 @@ private fun JumpToBottomButton(
     Box(
         modifier.padding(8.dp).size(32.dp)
             .onFocusChanged { onFocus(it.isFocused) }
-            .focusProperties { left = messages; up = messages; down = input }
+            .moveFocusOn(Key.DirectionLeft, messages)
+            .moveFocusOn(Key.DirectionUp, messages)
+            .focusProperties { down = input }
             .focusCard(
                 onPress, CircleShape, SolidColor(if (focused) Palette.focus else Palette.panel),
                 focusRequester = focusRequester, idleBorder = Palette.muted,

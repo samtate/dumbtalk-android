@@ -131,6 +131,23 @@ fun Modifier.focusCard(
         .border(if (focused) 2.dp else 1.dp, if (focused) Palette.focus else idleBorder, shape)
 }
 
+/**
+ * Sends focus to [target] when [key] is pressed, if [target] is on screen;
+ * otherwise the key moves focus as usual. Used instead of focusProperties'
+ * up/left, which crash when the target isn't composed (the newest message
+ * scrolled out of the list, say).
+ */
+@Composable
+fun Modifier.moveFocusOn(key: Key, target: FocusRequester?): Modifier {
+    if (target == null) return this
+    val moved = remember { BooleanArray(1) }
+    return onPreviewKeyEvent { event ->
+        if (event.key != key) return@onPreviewKeyEvent false
+        if (event.type == KeyEventType.KeyDown) moved[0] = runCatching { target.requestFocus() }.isSuccess
+        moved[0]
+    }
+}
+
 /** Near-square corners, like a character display's cells. */
 val Square = RoundedCornerShape(2.dp)
 
