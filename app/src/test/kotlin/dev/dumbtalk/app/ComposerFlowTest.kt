@@ -101,13 +101,12 @@ class ComposerFlowTest : KeypadTest() {
     @Test
     fun composerOptionsReturnToTheirOriginAndBackReturnsToMessages() {
         openMaya()
-        focusControl("Send", "SEND")
-        press(KeyEvent.KEYCODE_DPAD_DOWN)
-        waitFor("CHAT")
+        // The composer's first button opens the chat options (there's no left softkey there).
+        focusControl("Chat options", "OPTIONS")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("Chat options")
+        waitFor("Mute")
         press(KeyEvent.KEYCODE_BACK)
-        waitUntil("Send focus restored") { exists(hasContentDescription("Send") and isFocused()) }
+        waitUntil("options button focus restored") { exists(hasContentDescription("Chat options") and isFocused()) }
         press(KeyEvent.KEYCODE_BACK)
         waitFor("Perfect! Meet at the station")
         waitFor("◀ ACTIONS")
@@ -133,15 +132,17 @@ class ComposerFlowTest : KeypadTest() {
     }
 
     @Test
-    fun centreOnAMessageOpensActionsAndGotoQuoteJumps() {
+    fun centreOnAMessageReactsAndGotoQuoteJumps() {
         openMaya()
         // Maya's newest message replies to "Yes! 10am?", so centre jumps there.
         waitFor("GOTO QUOTE")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
-        waitUntil("the quoted message to be selected") { exists(hasText("ACTIONS")) }
+        waitUntil("the quoted message to be selected") { exists(hasText("REACT")) }
 
-        // A plain message opens its actions without changing it.
+        // On a plain message centre is a quick 👍; Left opens its actions.
         press(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("👍")
+        press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("Reply")
         waitFor("QUICK REACTION")
     }

@@ -51,6 +51,8 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
@@ -310,6 +312,10 @@ fun TextInput(
     onDone: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
+    // Compose sends D-pad Left/Right out of a text field as focus moves. Move
+    // the cursor instead while there's text that way; at either end the key
+    // moves focus as usual (to the composer's buttons, or Send).
+    val cursorKey = remember { arrayOfNulls<Key>(1) }
     BasicTextField(
         value = value,
         onValueChange = onValueChange,
@@ -320,7 +326,20 @@ fun TextInput(
         cursorBrush = SolidColor(Palette.focus),
         interactionSource = interaction,
         keyboardActions = KeyboardActions(onDone = { onDone?.invoke() }, onSend = { onDone?.invoke() }),
-        modifier = inputModifier(modifier, interaction, focusRequester),
+        modifier = inputModifier(modifier, interaction, focusRequester).onPreviewKeyEvent { event ->
+            val step = when (event.key) {
+                Key.DirectionLeft -> -1
+                Key.DirectionRight -> 1
+                else -> return@onPreviewKeyEvent false
+            }
+            if (event.type == KeyEventType.KeyUp) return@onPreviewKeyEvent (cursorKey[0] == event.key).also { cursorKey[0] = null }
+            val target = (if (value.selection.collapsed) value.selection.start else if (step < 0) value.selection.min else value.selection.max) +
+                (if (value.selection.collapsed) step else 0)
+            if (target !in 0..value.text.length || (value.selection.collapsed && target == value.selection.start)) return@onPreviewKeyEvent false
+            cursorKey[0] = event.key
+            onValueChange(value.copy(selection = TextRange(target)))
+            true
+        },
         decorationBox = { inner -> InputDecoration(value.text.isEmpty(), placeholder, inner) },
     )
 }

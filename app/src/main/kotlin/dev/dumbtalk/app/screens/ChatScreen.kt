@@ -158,7 +158,6 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         else -> null
     }
     var returnControl by remember { mutableStateOf<ComposeControl?>(null) }
-    var optionsOriginFocus by remember { mutableStateOf<FocusRequester?>(null) }
     var returnFocus by remember { mutableStateOf<FocusRequester?>(null) }
     fun closePopover() {
         if (media.overlay == MediaOverlay.Voice) media.cancelVoice() else media.closeOverlay()
@@ -221,16 +220,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     fun openChatOptions() {
         when {
             bottomFocused -> { returnControl = null; returnFocus = bottomFocus }
-            softkeys.typing -> {
-                returnControl = null
-                returnFocus = inputFocus
-                optionsOriginFocus = inputFocus
-                composeControl = ComposeControl.CHAT_OPTIONS
-            }
-            composeControl == ComposeControl.CHAT_OPTIONS -> {
-                returnControl = null
-                returnFocus = optionsOriginFocus
-            }
+            softkeys.typing -> { returnControl = null; returnFocus = inputFocus }
             composeControl != null -> {
                 returnControl = null
                 returnFocus = controls[composeControl]
@@ -355,6 +345,8 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             ) { media.open(message) }
             kind == AttachmentKind.FILE -> SoftkeyAction("Open") { media.openExternally(message) }
             quote != null -> SoftkeyAction("Goto Quote") { jumpTo(quote) }
+            // A quick 👍; Left opens the actions with the other reactions.
+            capabilities.reactions -> SoftkeyAction("React") { model.toggleReaction(message, "👍") }
             else -> actions
         }
     }
@@ -544,27 +536,10 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         else -> {
             val selected = messages.firstOrNull { it.id == selectedId }
             if (popover == null) Softkeys(
-                left = when {
-                    composeControl == null && !softkeys.typing && selectedId != null ->
-                        SoftkeyAction("Actions") { actionMessageId = selectedId }
-                    else -> SoftkeyAction(
-                        label = "Chat",
-                        onPress = ::openChatOptions,
-                        focusRequester = controls.getValue(ComposeControl.CHAT_OPTIONS),
-                        focusable = softkeys.typing || composeControl != null,
-                        upFocusRequester = optionsOriginFocus ?: inputFocus,
-                    ).apply {
-                        onFocused = {
-                            if (composeControl != ComposeControl.CHAT_OPTIONS) {
-                                optionsOriginFocus = when (composeControl) {
-                                    null -> inputFocus
-                                    else -> controls[composeControl]
-                                }
-                            }
-                            composeControl = ComposeControl.CHAT_OPTIONS
-                        }
-                    }
-                },
+                // Only a selected message has a left softkey; in the composer Left moves along the row.
+                left = if (composeControl == null && !softkeys.typing && !bottomFocused && selectedId != null) {
+                    SoftkeyAction("Actions") { actionMessageId = selectedId }
+                } else null,
                 center = when {
                     bottomFocused -> SoftkeyAction("Bottom")
                     barFocused -> SoftkeyAction("Select")
@@ -577,7 +552,8 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     else -> SoftkeyAction("Type") { runCatching { inputFocus.requestFocus() } }
                 },
                     right = SoftkeyAction(
-                        if (model.replyTo != null || model.editing != null) "Cancel" else if ((softkeys.typing || composeControl != null || bottomFocused) && lastMessageId != null) "Messages" else "Back",
+                        // From the composer Back returns to the messages; from them, to the inbox.
+                        if (model.replyTo != null || model.editing != null) "Cancel" else "Back",
                     ) {
                     when {
                         model.cancelCompose() -> Unit
@@ -657,9 +633,9 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     onVoice = { returnControl = ComposeControl.VOICE; media.openVoice() },
                     onAttach = { returnControl = ComposeControl.ATTACH; media.openAttach() },
                     onEmoji = { returnControl = ComposeControl.EMOJI; emojiFor = EmojiUse.Compose },
+                    onChatOptions = ::openChatOptions,
                     onSend = ::send,
                     controls = controls,
-                    optionsFocus = controls.getValue(ComposeControl.CHAT_OPTIONS),
                     onBounds = { control, bounds ->
                         anchors[control] = Rect(bounds.left - screenOrigin.x, bounds.top - screenOrigin.y, bounds.right - screenOrigin.x, bounds.bottom - screenOrigin.y)
                     },

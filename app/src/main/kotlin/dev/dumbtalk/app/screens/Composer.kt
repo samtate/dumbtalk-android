@@ -37,17 +37,17 @@ import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.TextInput
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
-import dev.dumbtalk.app.ui.leftIsSoftkey
 import dev.dumbtalk.core.Capabilities
 
 /** The controls beside the message box; each one relabels the centre softkey. */
 enum class ComposeControl(val label: String) {
-    VOICE("Record"), ATTACH("Attach"), EMOJI("Emoji"), CLEAR("Clear"), SEND("Send"), CHAT_OPTIONS("Chat"),
+    CHAT_OPTIONS("Options"), VOICE("Record"), ATTACH("Attach"), EMOJI("Emoji"), CLEAR("Clear"), SEND("Send"),
 }
 
 /**
- * Voice note, attachment and emoji buttons, a clear-draft ×, the message box
- * and Send, left to right. Up from any of them returns to the messages.
+ * Chat options, voice note, attachment and emoji buttons, a clear-draft ×,
+ * the message box and Send, left to right. Up from any of them returns to
+ * the messages. There's no left softkey here: Left moves along the row.
  */
 @Composable
 fun ComposerBar(
@@ -60,25 +60,26 @@ fun ComposerBar(
     onVoice: () -> Unit,
     onAttach: () -> Unit,
     onEmoji: () -> Unit,
+    onChatOptions: () -> Unit,
     onSend: () -> Unit,
     controls: Map<ComposeControl, FocusRequester> = emptyMap(),
     onBounds: (ComposeControl, Rect) -> Unit = { _, _ -> },
-    optionsFocus: FocusRequester? = controls[ComposeControl.CHAT_OPTIONS],
 ) {
     Row(
         Modifier.fillMaxWidth().padding(4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
+        ComposerButton("Chat options", upTo, controls[ComposeControl.CHAT_OPTIONS], { onBounds(ComposeControl.CHAT_OPTIONS, it) }, { onFocus(ComposeControl.CHAT_OPTIONS) }, onChatOptions) { Icon(AppIcon.SETTINGS, size = 16.dp) }
         if (capabilities.voiceNotes) {
-            ComposerButton("Record voice note", upTo, optionsFocus, controls[ComposeControl.VOICE], { onBounds(ComposeControl.VOICE, it) }, { onFocus(ComposeControl.VOICE) }, onVoice, first = true) { Icon(AppIcon.MIC, size = 16.dp) }
+            ComposerButton("Record voice note", upTo, controls[ComposeControl.VOICE], { onBounds(ComposeControl.VOICE, it) }, { onFocus(ComposeControl.VOICE) }, onVoice) { Icon(AppIcon.MIC, size = 16.dp) }
         }
         if (capabilities.attachments) {
-            ComposerButton("Send attachment", upTo, optionsFocus, controls[ComposeControl.ATTACH], { onBounds(ComposeControl.ATTACH, it) }, { onFocus(ComposeControl.ATTACH) }, onAttach, first = !capabilities.voiceNotes) { Icon(AppIcon.ATTACH, size = 16.dp) }
+            ComposerButton("Send attachment", upTo, controls[ComposeControl.ATTACH], { onBounds(ComposeControl.ATTACH, it) }, { onFocus(ComposeControl.ATTACH) }, onAttach) { Icon(AppIcon.ATTACH, size = 16.dp) }
         }
-        ComposerButton("Emoji", upTo, optionsFocus, controls[ComposeControl.EMOJI], { onBounds(ComposeControl.EMOJI, it) }, { onFocus(ComposeControl.EMOJI) }, onEmoji, first = !capabilities.voiceNotes && !capabilities.attachments) { Icon(AppIcon.STICKER, size = 16.dp) }
+        ComposerButton("Emoji", upTo, controls[ComposeControl.EMOJI], { onBounds(ComposeControl.EMOJI, it) }, { onFocus(ComposeControl.EMOJI) }, onEmoji) { Icon(AppIcon.STICKER, size = 16.dp) }
         if (model.draft.isNotEmpty()) {
-            ComposerButton("Clear message", upTo, optionsFocus, controls[ComposeControl.CLEAR], {}, { onFocus(ComposeControl.CLEAR) }, model::clearDraft) { BasicText("×", style = Type.header) }
+            ComposerButton("Clear message", upTo, controls[ComposeControl.CLEAR], {}, { onFocus(ComposeControl.CLEAR) }, model::clearDraft) { BasicText("×", style = Type.header) }
         }
         // The field keeps its own cursor and IME composition; when the draft
         // changes from outside (a mention, an emoji) the cursor goes to the end.
@@ -91,7 +92,6 @@ fun ComposerBar(
             focusRequester = inputFocus,
             modifier = Modifier.weight(1f).focusProperties {
                 up = upTo
-                if (optionsFocus != null) down = optionsFocus
             }.onFocusChanged { if (it.isFocused) onFocus(null) },
             onDone = onSend,
         )
@@ -101,7 +101,7 @@ fun ComposerBar(
             Modifier
                 .size(32.dp)
                 .onFocusChanged { sendFocused.value = it.isFocused }
-                .focusProperties { up = upTo; if (optionsFocus != null) down = optionsFocus }
+                .focusProperties { up = upTo }
                 .focusCard(
                     onSend,
                     Square,
@@ -120,21 +120,17 @@ fun ComposerBar(
 private fun ComposerButton(
     description: String,
     upTo: FocusRequester,
-    optionsFocus: FocusRequester?,
     requester: FocusRequester?,
     onBounds: (Rect) -> Unit,
     onFocused: () -> Unit,
     onClick: () -> Unit,
-    first: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Box(
         Modifier
             .size(32.dp)
-            // Nothing is left of the first button, so Left opens Chat there.
-            .then(if (first) Modifier.leftIsSoftkey() else Modifier)
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
-            .focusProperties { up = upTo; if (optionsFocus != null) down = optionsFocus }
+            .focusProperties { up = upTo }
             .focusCard(onClick = if (LocalControlsEnabled.current) onClick else ({ }), shape = Square, background = Palette.tile, focusRequester = requester, onFocused = onFocused, idleBorder = Palette.tileBorder)
             .semantics { contentDescription = description },
         contentAlignment = Alignment.Center,
