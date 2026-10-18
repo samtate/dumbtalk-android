@@ -31,6 +31,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.onClick
@@ -76,29 +77,9 @@ class SoftkeyController {
     /** True while a text field has focus, so text keys go to the keyboard. */
     var typing by mutableStateOf(false)
 
-    /** Hardware shortcut for the left action, configured in app settings. */
-    var leftShortcutCode by mutableStateOf(KeyEvent.KEYCODE_1)
-    var captureNextKey by mutableStateOf(false)
-    var capturedKeyCode by mutableStateOf<Int?>(null)
-    var captureError by mutableStateOf<String?>(null)
-    var testShortcutCode by mutableStateOf<Int?>(null)
-    var shortcutTestPassed by mutableStateOf(false)
-
     /** The focused control, if it wants the centre key itself (e.g. Send). */
     private var centerClaim: Any? = null
-    private var captureKeyUpCode: Int? = null
     private val handledPresses = mutableSetOf<Int>()
-
-    fun beginLeftShortcutCapture() {
-        capturedKeyCode = null
-        captureError = null
-        captureNextKey = true
-    }
-
-    fun cancelLeftShortcutCapture() {
-        captureNextKey = false
-        captureKeyUpCode = null
-    }
 
     fun claimCenter(owner: Any, claim: Boolean) {
         if (claim) centerClaim = owner else if (centerClaim === owner) centerClaim = null
@@ -119,9 +100,10 @@ class SoftkeyController {
     enum class Result { HANDLED, EXIT, IGNORED }
 
     /**
-     * Maps the configured shortcut to left, preserving text keys while
-     * typing; right softkey or Back → right; centre when the screen
-     * gives it an action, unless the focused control claims it.
+     * Maps the left softkey (and Menu) to left; right softkey or Back →
+     * right; centre when the screen gives it an action, unless the focused
+     * control claims it. D-pad Left goes to the screen first: see
+     * [onUnhandled].
      *
      * Everything acts on key-down and both halves of the press are consumed.
      * Acting on key-up would let one press do two things: Back closes a chat
@@ -135,32 +117,12 @@ class SoftkeyController {
             if (event.action == KeyEvent.ACTION_UP) handledPresses.remove(code)
             return Result.HANDLED
         }
-        if (captureKeyUpCode == code) {
-            if (event.action == KeyEvent.ACTION_UP) captureKeyUpCode = null
-            return Result.HANDLED
-        }
         val back = code == KeyEvent.KEYCODE_SOFT_RIGHT || code == KeyEvent.KEYCODE_BACK
-        if (captureNextKey && !back) {
-            if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return Result.HANDLED
-            if (!isBindable(code)) {
-                captureError = "That key is reserved for navigation or typing."
-                return Result.HANDLED
-            }
-            capturedKeyCode = code
-            captureKeyUpCode = code
-            captureNextKey = false
-            captureError = null
-            return Result.HANDLED
-        }
-        if (code == testShortcutCode) {
-            if (event.action == KeyEvent.ACTION_DOWN && event.repeatCount == 0) shortcutTestPassed = true
-            return Result.HANDLED
-        }
         val center = code == KeyEvent.KEYCODE_DPAD_CENTER || code == KeyEvent.KEYCODE_ENTER || code == KeyEvent.KEYCODE_NUMPAD_ENTER
         if (center && centerClaim != null) return Result.IGNORED
         val config = current
         val action = when {
-            code == leftShortcutCode && (!typing || (!isTextKey(code) && !event.isPrintingKey)) -> config.left
+            code == KeyEvent.KEYCODE_SOFT_LEFT || code == KeyEvent.KEYCODE_MENU -> config.left
             back -> config.right ?: if (code == KeyEvent.KEYCODE_BACK) SoftkeyAction(EXIT) else null
             center && config.center?.onPress != null -> config.center
             else -> return Result.IGNORED
@@ -175,53 +137,41 @@ class SoftkeyController {
     companion object {
         const val EXIT = "Exit"
 
-        fun isTextKey(code: Int): Boolean = code in KeyEvent.KEYCODE_0..KeyEvent.KEYCODE_9 ||
-            code in KeyEvent.KEYCODE_A..KeyEvent.KEYCODE_Z ||
-            code in KeyEvent.KEYCODE_NUMPAD_0..KeyEvent.KEYCODE_NUMPAD_RIGHT_PAREN ||
-            code in setOf(
-                KeyEvent.KEYCODE_STAR, KeyEvent.KEYCODE_POUND, KeyEvent.KEYCODE_SPACE,
-                KeyEvent.KEYCODE_COMMA, KeyEvent.KEYCODE_PERIOD, KeyEvent.KEYCODE_GRAVE,
-                KeyEvent.KEYCODE_MINUS, KeyEvent.KEYCODE_EQUALS, KeyEvent.KEYCODE_LEFT_BRACKET,
-                KeyEvent.KEYCODE_RIGHT_BRACKET, KeyEvent.KEYCODE_BACKSLASH, KeyEvent.KEYCODE_SEMICOLON,
-                KeyEvent.KEYCODE_APOSTROPHE, KeyEvent.KEYCODE_SLASH, KeyEvent.KEYCODE_AT,
-                KeyEvent.KEYCODE_PLUS, KeyEvent.KEYCODE_DEL, KeyEvent.KEYCODE_FORWARD_DEL, KeyEvent.KEYCODE_TAB,
-            )
 
-        fun isBindable(code: Int): Boolean = code > KeyEvent.KEYCODE_UNKNOWN &&
-            code <= KeyEvent.getMaxKeyCode() && !KeyEvent.isModifierKey(code) &&
-            code != KeyEvent.KEYCODE_ESCAPE && code != KeyEvent.KEYCODE_DEL &&
-            code != KeyEvent.KEYCODE_FORWARD_DEL && code != KeyEvent.KEYCODE_TAB &&
-            code != KeyEvent.KEYCODE_BACK && code != KeyEvent.KEYCODE_SOFT_RIGHT &&
-            code != KeyEvent.KEYCODE_DPAD_UP && code != KeyEvent.KEYCODE_DPAD_DOWN &&
-            code != KeyEvent.KEYCODE_DPAD_LEFT && code != KeyEvent.KEYCODE_DPAD_RIGHT &&
-            code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER &&
-            code != KeyEvent.KEYCODE_NUMPAD_ENTER
+    }
 
-        fun keyLabel(code: Int): String = when (code) {
-            KeyEvent.KEYCODE_0 -> "0"
-            KeyEvent.KEYCODE_1 -> "1"
-            KeyEvent.KEYCODE_2 -> "2"
-            KeyEvent.KEYCODE_3 -> "3"
-            KeyEvent.KEYCODE_4 -> "4"
-            KeyEvent.KEYCODE_5 -> "5"
-            KeyEvent.KEYCODE_6 -> "6"
-            KeyEvent.KEYCODE_7 -> "7"
-            KeyEvent.KEYCODE_8 -> "8"
-            KeyEvent.KEYCODE_9 -> "9"
-            KeyEvent.KEYCODE_STAR -> "*"
-            KeyEvent.KEYCODE_POUND -> "#"
-            KeyEvent.KEYCODE_MENU -> "Menu"
-            KeyEvent.KEYCODE_SOFT_LEFT -> "Left softkey"
-            KeyEvent.KEYCODE_UNKNOWN -> "None"
-            KeyEvent.KEYCODE_BUTTON_L1 -> "L1"
-            KeyEvent.KEYCODE_BUTTON_X -> "X"
-            KeyEvent.KEYCODE_BUTTON_Y -> "Y"
-            else -> KeyEvent.keyCodeToString(code).removePrefix("KEYCODE_").replace('_', ' ').lowercase().replaceFirstChar { it.uppercase() }
-        }
+    /**
+     * D-pad Left, once the screen has passed on it. DumberOS takes the real
+     * left softkey for its notification shade, so Left stands in for it
+     * wherever nothing uses Left itself: lists and message bubbles do, while
+     * text fields, side-by-side buttons and the photo viewer keep it.
+     */
+    fun onUnhandled(event: KeyEvent): Boolean {
+        if (event.keyCode != KeyEvent.KEYCODE_DPAD_LEFT || typing) return false
+        val action = current.left?.onPress ?: return false
+        if (event.action != KeyEvent.ACTION_DOWN || event.repeatCount > 0) return true
+        handledPresses.add(event.keyCode)
+        action()
+        return true
     }
 }
 
 val LocalSoftkeys = staticCompositionLocalOf<SoftkeyController> { error("No SoftkeyController") }
+
+/**
+ * Makes D-pad Left press the left softkey on this control, for controls
+ * where Compose would otherwise move focus sideways: a message bubble (to
+ * the bubble beside it) or the composer's first button.
+ */
+@Composable
+fun Modifier.leftIsSoftkey(): Modifier {
+    val softkeys = LocalSoftkeys.current
+    return onPreviewKeyEvent { event ->
+        if (event.key != Key.DirectionLeft) return@onPreviewKeyEvent false
+        if (event.type == KeyEventType.KeyDown) softkeys.current.left?.onPress?.invoke()
+        true
+    }
+}
 
 @Composable
 fun Softkeys(left: SoftkeyAction? = null, center: SoftkeyAction? = null, right: SoftkeyAction? = null) {
@@ -241,16 +191,8 @@ fun SoftkeyBar(controller: SoftkeyController, modifier: Modifier = Modifier) {
             .padding(horizontal = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        val leftLabel = config.left?.let {
-            if (controller.leftShortcutCode == KeyEvent.KEYCODE_UNKNOWN) it.label
-            else if (controller.typing && SoftkeyController.isTextKey(controller.leftShortcutCode)) it.label
-            else when (controller.leftShortcutCode) {
-                KeyEvent.KEYCODE_SOFT_LEFT, KeyEvent.KEYCODE_MENU -> it.label
-                else -> SoftkeyController.keyLabel(controller.leftShortcutCode).let { key ->
-                    if (key.length <= 2) "$key ${it.label}" else it.label
-                }
-            }
-        }
+        // ◀: D-pad Left presses it (except while typing, when Left moves the cursor).
+        val leftLabel = config.left?.let { if (controller.typing) it.label else "◀ " + it.label }
         SoftkeyLabel(leftLabel, TextAlign.Start, config.left, Modifier.weight(1f), controller)
         SoftkeyLabel(config.center?.label, TextAlign.Center, config.center, Modifier.weight(1f), controller)
         SoftkeyLabel(config.right?.label, TextAlign.End, config.right, Modifier.weight(1f), controller)

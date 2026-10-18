@@ -44,15 +44,18 @@ class ComposerFlowTest : KeypadTest() {
     }
 
     @Test
-    fun leftRepliesToTheSelectedMessageAndKeepsTheDraft() {
+    fun leftOpensActionsAndReplyKeepsTheDraft() {
         openMaya()
         press(KeyEvent.KEYCODE_DPAD_DOWN)
         compose.onNode(hasSetTextAction()).performTextInput("Existing draft")
         press(KeyEvent.KEYCODE_BACK)
-        // Centre follows the quote to an older message; Left must reply to it.
+        // Centre follows the quote to an older message; Left opens its
+        // actions (the left softkey) and Reply, first, replies to it.
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("ACTIONS")
         press(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("QUICK REACTION")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Replying to")
         waitFor("Yes! 10am?")
         waitUntil("reply input focused with draft preserved") {
@@ -107,13 +110,13 @@ class ComposerFlowTest : KeypadTest() {
         waitUntil("Send focus restored") { exists(hasContentDescription("Send") and isFocused()) }
         press(KeyEvent.KEYCODE_BACK)
         waitFor("Perfect! Meet at the station")
-        waitFor("1 ACTIONS")
+        waitFor("◀ ACTIONS")
     }
 
     @Test
     fun nestedChatOptionsReturnToTheirMenuItemAndReplyFocusesTyping() {
         openMaya()
-        press(KeyEvent.KEYCODE_1)
+        press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("Message actions")
         compose.onNodeWithText("Chat options").requestFocus()
         step()

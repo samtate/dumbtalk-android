@@ -614,7 +614,6 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                             loadThumbnail = model::thumbnailPath,
                             belowLast = inputFocus,
                             focusByMessageId = messageFocusById,
-                            onReply = { message -> if (capabilities.replies) model.startReply(message); focusInput() },
                             onRight = {
                                 bottomRequested = true
                                 scope.launch { withFrameNanos { }; bottomFocus.requestFocus() }

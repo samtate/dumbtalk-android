@@ -12,7 +12,7 @@ class ForwardFlowTest : KeypadTest() {
         waitFor("Maya Chen")
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER) // Family (WhatsApp)
         waitFor("Lunch at ours on Sunday?")
-        press(KeyEvent.KEYCODE_1) // the latest message's panel
+        press(KeyEvent.KEYCODE_DPAD_LEFT) // the latest message's panel
         waitFor("Forward")
         compose.onNodeWithText("Forward").requestFocus()
         step()

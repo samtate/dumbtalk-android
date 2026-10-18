@@ -37,6 +37,7 @@ import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.TextInput
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.focusCard
+import dev.dumbtalk.app.ui.leftIsSoftkey
 import dev.dumbtalk.core.Capabilities
 
 /** The controls beside the message box; each one relabels the centre softkey. */
@@ -70,12 +71,12 @@ fun ComposerBar(
         horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         if (capabilities.voiceNotes) {
-            ComposerButton("Record voice note", upTo, optionsFocus, controls[ComposeControl.VOICE], { onBounds(ComposeControl.VOICE, it) }, { onFocus(ComposeControl.VOICE) }, onVoice) { Icon(AppIcon.MIC, size = 16.dp) }
+            ComposerButton("Record voice note", upTo, optionsFocus, controls[ComposeControl.VOICE], { onBounds(ComposeControl.VOICE, it) }, { onFocus(ComposeControl.VOICE) }, onVoice, first = true) { Icon(AppIcon.MIC, size = 16.dp) }
         }
         if (capabilities.attachments) {
-            ComposerButton("Send attachment", upTo, optionsFocus, controls[ComposeControl.ATTACH], { onBounds(ComposeControl.ATTACH, it) }, { onFocus(ComposeControl.ATTACH) }, onAttach) { Icon(AppIcon.ATTACH, size = 16.dp) }
+            ComposerButton("Send attachment", upTo, optionsFocus, controls[ComposeControl.ATTACH], { onBounds(ComposeControl.ATTACH, it) }, { onFocus(ComposeControl.ATTACH) }, onAttach, first = !capabilities.voiceNotes) { Icon(AppIcon.ATTACH, size = 16.dp) }
         }
-        ComposerButton("Emoji", upTo, optionsFocus, controls[ComposeControl.EMOJI], { onBounds(ComposeControl.EMOJI, it) }, { onFocus(ComposeControl.EMOJI) }, onEmoji) { Icon(AppIcon.STICKER, size = 16.dp) }
+        ComposerButton("Emoji", upTo, optionsFocus, controls[ComposeControl.EMOJI], { onBounds(ComposeControl.EMOJI, it) }, { onFocus(ComposeControl.EMOJI) }, onEmoji, first = !capabilities.voiceNotes && !capabilities.attachments) { Icon(AppIcon.STICKER, size = 16.dp) }
         if (model.draft.isNotEmpty()) {
             ComposerButton("Clear message", upTo, optionsFocus, controls[ComposeControl.CLEAR], {}, { onFocus(ComposeControl.CLEAR) }, model::clearDraft) { BasicText("×", style = Type.header) }
         }
@@ -124,11 +125,14 @@ private fun ComposerButton(
     onBounds: (Rect) -> Unit,
     onFocused: () -> Unit,
     onClick: () -> Unit,
+    first: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     Box(
         Modifier
             .size(32.dp)
+            // Nothing is left of the first button, so Left opens Chat there.
+            .then(if (first) Modifier.leftIsSoftkey() else Modifier)
             .onGloballyPositioned { onBounds(it.boundsInRoot()) }
             .focusProperties { up = upTo; if (optionsFocus != null) down = optionsFocus }
             .focusCard(onClick = if (LocalControlsEnabled.current) onClick else ({ }), shape = Square, background = Palette.tile, focusRequester = requester, onFocused = onFocused, idleBorder = Palette.tileBorder)

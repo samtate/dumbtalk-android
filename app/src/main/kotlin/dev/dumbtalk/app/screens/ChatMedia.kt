@@ -310,7 +310,7 @@ fun ImageViewer(path: String, onClose: () -> Unit, photoCount: Int = 1, photoInd
     // A picture taller than the screen zooms to its width and pans vertically; otherwise to its height.
     val vertical = viewport.height > 0 && aspect < viewport.width.toFloat() / viewport.height
 
-    Softkeys(left = if (photoCount > 1) SoftkeyAction("Next") { onNext() } else null,
+    Softkeys(
         center = SoftkeyAction(if (zoomed) "Fit" else "Zoom") { zoomed = !zoomed }, right = SoftkeyAction("Back", onClose))
     Column(Modifier.fillMaxSize()) {
         Header(if (photoCount > 1) "Photo ${photoIndex + 1}/$photoCount" else "Photo", trailing = { BasicText(if (!zoomed) "Fit" else if (vertical) "Width" else "Height", style = Type.small) })

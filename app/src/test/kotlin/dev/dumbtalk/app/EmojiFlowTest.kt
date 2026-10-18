@@ -14,7 +14,7 @@ class EmojiFlowTest : KeypadTest() {
         waitFor("Maya Chen")
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER) // Family
         waitFor("Lunch at ours on Sunday?") // only in the chat; "Count me in!" is also an inbox preview
-        press(KeyEvent.KEYCODE_1) // the message panel
+        press(KeyEvent.KEYCODE_DPAD_LEFT) // the message panel
         waitFor("More emoji")
         compose.onNodeWithText("More emoji").requestFocus()
         step()

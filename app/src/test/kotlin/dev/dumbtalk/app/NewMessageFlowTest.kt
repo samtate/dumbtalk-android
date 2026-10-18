@@ -13,7 +13,7 @@ class NewMessageFlowTest : KeypadTest() {
     @Test
     fun contactsFilterAndOpenAChat() {
         waitFor("Maya Chen")
-        press(KeyEvent.KEYCODE_1) // Menu
+        press(KeyEvent.KEYCODE_DPAD_LEFT) // Menu
         waitFor("New message")
         press(KeyEvent.KEYCODE_DPAD_CENTER) // first tile
         waitFor("Search contacts")
@@ -41,7 +41,7 @@ class NewMessageFlowTest : KeypadTest() {
     @Test
     fun enterANumberStillWorks() {
         waitFor("Maya Chen")
-        press(KeyEvent.KEYCODE_1)
+        press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("New message")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Enter a number…")

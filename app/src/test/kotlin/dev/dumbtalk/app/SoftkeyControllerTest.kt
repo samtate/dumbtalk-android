@@ -38,7 +38,7 @@ class SoftkeyControllerTest {
     }
 
     @Test
-    fun textBindingsYieldToTypingButHardwareBindingsStillWork() {
+    fun unhandledLeftIsTheLeftSoftkeyExceptWhileTyping() {
         val controller = SoftkeyController()
         var opened = 0
         compose.setContent {
@@ -47,61 +47,21 @@ class SoftkeyControllerTest {
             }
         }
         compose.runOnIdle {
-            for (code in listOf(KeyEvent.KEYCODE_1, KeyEvent.KEYCODE_POUND, KeyEvent.KEYCODE_A, KeyEvent.KEYCODE_SPACE)) {
-                controller.leftShortcutCode = code
-                controller.typing = true
-                assertEquals(SoftkeyController.Result.IGNORED, controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, code)))
-                assertEquals(SoftkeyController.Result.IGNORED, controller.onKey(KeyEvent(KeyEvent.ACTION_UP, code)))
-                controller.typing = false
-                controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, code))
-                controller.onKey(KeyEvent(KeyEvent.ACTION_UP, code))
-            }
-            assertEquals(4, opened)
-            controller.leftShortcutCode = KeyEvent.KEYCODE_MENU
+            val down = KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)
+            val up = KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_DPAD_LEFT)
+            // The screen sees Left first; the controller only acts once it's passed on.
+            assertEquals(SoftkeyController.Result.IGNORED, controller.onKey(down))
+            assertTrue(controller.onUnhandled(down))
+            assertEquals(SoftkeyController.Result.HANDLED, controller.onKey(up))
+            assertEquals(1, opened)
+            // In a text field Left moves the cursor instead.
             controller.typing = true
+            assertFalse(controller.onUnhandled(down))
+            assertEquals(1, opened)
+            // The hardware Menu key still works.
+            controller.typing = false
             controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_MENU))
-            assertEquals(5, opened)
+            assertEquals(2, opened)
         }
-    }
-
-    @Test
-    fun captureBackInvokesCancelAndDoesNotCaptureNavigation() {
-        val controller = SoftkeyController()
-        var cancelled = false
-        compose.setContent {
-            CompositionLocalProvider(LocalSoftkeys provides controller) {
-                Softkeys(right = SoftkeyAction("Cancel") { controller.cancelLeftShortcutCapture(); cancelled = true })
-            }
-        }
-        compose.runOnIdle {
-            controller.beginLeftShortcutCapture()
-            controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_DPAD_CENTER))
-            assertNull(controller.capturedKeyCode)
-            assertNotNull(controller.captureError)
-            controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
-            assertTrue(cancelled)
-            assertFalse(controller.captureNextKey)
-        }
-    }
-
-    @Test
-    fun captureConsumesBothHalvesAndTestingDoesNotApplyTheNewBinding() {
-        val controller = SoftkeyController()
-        controller.beginLeftShortcutCapture()
-        controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_CALL))
-        assertEquals(KeyEvent.KEYCODE_CALL, controller.capturedKeyCode)
-        controller.onKey(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_CALL))
-        controller.beginLeftShortcutCapture()
-        controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_POUND))
-        assertEquals(KeyEvent.KEYCODE_POUND, controller.capturedKeyCode)
-        assertEquals(SoftkeyController.Result.HANDLED, controller.onKey(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_POUND)))
-        controller.testShortcutCode = KeyEvent.KEYCODE_POUND
-        controller.onKey(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_POUND))
-        assertTrue(controller.shortcutTestPassed)
-        assertEquals(KeyEvent.KEYCODE_1, controller.leftShortcutCode)
-        assertTrue(SoftkeyController.isBindable(KeyEvent.KEYCODE_HOME))
-        assertTrue(SoftkeyController.isBindable(KeyEvent.KEYCODE_CALL))
-        assertTrue(SoftkeyController.isBindable(KeyEvent.KEYCODE_VOLUME_UP))
-        assertFalse(SoftkeyController.isBindable(KeyEvent.KEYCODE_DPAD_UP))
     }
 }

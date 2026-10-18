@@ -57,10 +57,6 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        softkeys.leftShortcutCode = getSharedPreferences("app_ui", MODE_PRIVATE)
-            .getInt("left_shortcut", KeyEvent.KEYCODE_1)
-            .takeIf { it == KeyEvent.KEYCODE_UNKNOWN || SoftkeyController.isBindable(it) }
-            ?: KeyEvent.KEYCODE_1
         val app = application as DumbTalkApp
         permissions.ask()
         openFromNotification(intent)
@@ -88,7 +84,7 @@ class MainActivity : ComponentActivity() {
                                     Screen.Services -> ServicesScreen(app, navigator)
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
-                                    Screen.Settings -> SettingsScreen(navigator, softkeys)
+                                    Screen.Settings -> SettingsScreen(navigator)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
                                     Screen.NewNumber -> NewNumberScreen(app, navigator)
                                     Screen.NewGroup -> NewGroupScreen(app, navigator)
@@ -191,6 +187,6 @@ class MainActivity : ComponentActivity() {
                 finish()
                 true
             }
-            SoftkeyController.Result.IGNORED -> super.dispatchKeyEvent(event)
+            SoftkeyController.Result.IGNORED -> super.dispatchKeyEvent(event) || softkeys.onUnhandled(event)
         }
 }

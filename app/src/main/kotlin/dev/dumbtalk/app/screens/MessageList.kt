@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import dev.dumbtalk.app.media.AudioPlayer
 import dev.dumbtalk.app.ui.CenteredMessage
 import dev.dumbtalk.app.ui.Palette
+import dev.dumbtalk.app.ui.leftIsSoftkey
 import dev.dumbtalk.app.ui.Square
 import dev.dumbtalk.app.ui.Type
 import dev.dumbtalk.app.ui.assignTints
@@ -96,7 +97,6 @@ internal fun MessageList(
     /** Focus target for D-pad down from the newest message: the message box. */
     belowLast: FocusRequester,
     focusByMessageId: SnapshotStateMap<String, FocusRequester>,
-    onReply: (Message) -> Unit,
     onRight: () -> Unit,
     /** Messages whose spoilers are shown. */
     revealed: Set<String> = emptySet(),
@@ -217,7 +217,6 @@ internal fun MessageList(
                     },
                     onOpen = { onOpen(message) },
                     onVerticalMove = moveAdjacent,
-                    onReply = { if (!message.deleted) onReply(message) },
                     onRight = onRight,
                     downTo = if (index == messages.lastIndex) belowLast else null,
                     revealed = message.id in revealed,
@@ -269,7 +268,6 @@ private fun Bubble(
     onFocus: () -> Unit,
     onOpen: () -> Unit,
     onVerticalMove: (Int) -> Boolean,
-    onReply: () -> Unit,
     onRight: () -> Unit,
     downTo: FocusRequester? = null,
     revealed: Boolean = false,
@@ -298,13 +296,14 @@ private fun Bubble(
                 .then(if (downTo != null) Modifier.focusProperties { down = downTo } else Modifier)
                 .focusRequester(itemFocusRequester)
                 .onFocusChanged { if (!it.isFocused) horizontalPress[0] = null }
+                .leftIsSoftkey()
                 .onPreviewKeyEvent { event ->
                     when (event.key) {
-                        Key.DirectionLeft, Key.DirectionRight -> {
+                        Key.DirectionRight -> {
                             if (event.type == KeyEventType.KeyDown) horizontalPress[0] = event.key
                             else if (event.type == KeyEventType.KeyUp && horizontalPress[0] == event.key) {
                                 horizontalPress[0] = null
-                                if (event.key == Key.DirectionLeft) onReply() else onRight()
+                                onRight()
                             }
                             true
                         }

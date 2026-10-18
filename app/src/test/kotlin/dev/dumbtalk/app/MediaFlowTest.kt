@@ -40,7 +40,7 @@ class MediaFlowTest : KeypadTest() {
     @Test
     fun theMessagePanelAlsoOffersView() {
         openMayaAndSelectThePhoto()
-        press(KeyEvent.KEYCODE_1)
+        press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("QUICK REACTION")
         waitFor("View")
         // The first action tile sits directly below the reaction rows.
