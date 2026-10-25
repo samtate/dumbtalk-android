@@ -275,3 +275,42 @@ func TestAlbumParts(t *testing.T) {
 		t.Fatalf("album parent should be ignored, got %+v", got)
 	}
 }
+
+func TestOutboxStatuses(t *testing.T) {
+	s, err := openStore(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat := "441234@s.whatsapp.net"
+	status := func(id string) string {
+		m, _ := s.message(chat, id)
+		return m.Status
+	}
+	for _, id := range []string{"A", "B", "C"} {
+		if err := s.putMessage(row{Chat: chat, ID: id, FromMe: true, Ts: 1000, Kind: "text", Text: id, Status: "sending"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// A send that's cut short (the app was killed) becomes failed, to retry.
+	s.failInterrupted()
+	if status("A") != "failed" {
+		t.Fatalf("interrupted send = %q, want failed", status("A"))
+	}
+	// A retry goes back to sending, and the attempt's result is recorded.
+	s.settle(chat, "A", "sending")
+	s.settle(chat, "A", "sent")
+	if status("A") != "sent" {
+		t.Fatalf("retried send = %q, want sent", status("A"))
+	}
+	// WhatsApp's acknowledgement can beat the send call back; it isn't undone.
+	s.setStatus(chat, []string{"B"}, "delivered")
+	s.settle(chat, "B", "failed")
+	if status("B") != "delivered" {
+		t.Fatalf("acknowledged send = %q, want delivered", status("B"))
+	}
+	// A send we thought failed is moved on when WhatsApp says it arrived.
+	s.setStatus(chat, []string{"C"}, "read")
+	if status("C") != "read" {
+		t.Fatalf("failed then read = %q, want read", status("C"))
+	}
+}

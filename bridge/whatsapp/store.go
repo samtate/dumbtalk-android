@@ -254,7 +254,28 @@ func (s *msgStore) deleteMessage(chat, id string) error {
 	return err
 }
 
-var statusRank = map[string]int{"": 0, "pending": 1, "sent": 2, "delivered": 3, "read": 4}
+// "sending" and "failed" are our own messages in the outbox; WhatsApp's
+// acknowledgements still move a failed one on if it got through after all.
+var statusRank = map[string]int{"": 0, "pending": 1, "sending": 1, "failed": 1, "sent": 2, "delivered": 3, "read": 4}
+
+// settle records how sending a message went, unless an acknowledgement
+// already moved it further.
+func (s *msgStore) settle(chat, id, status string) error {
+	_, err := s.db.Exec(`UPDATE messages SET status = ? WHERE chat = ? AND id = ? AND status IN ('sending', 'failed')`, status, chat, id)
+	return err
+}
+
+// failInterrupted marks sends cut short (the app was killed) as failed, to retry.
+func (s *msgStore) failInterrupted() error {
+	_, err := s.db.Exec(`UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'sending'`)
+	return err
+}
+
+// setRaw stores the protobuf of a message once it's built (after an upload).
+func (s *msgStore) setRaw(chat, id string, raw []byte) error {
+	_, err := s.db.Exec(`UPDATE messages SET raw = ? WHERE chat = ? AND id = ?`, raw, chat, id)
+	return err
+}
 
 // setStatus only ever moves a message's status forward.
 func (s *msgStore) setStatus(chat string, ids []string, status string) error {

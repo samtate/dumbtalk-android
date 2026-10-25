@@ -41,6 +41,9 @@ type Client struct {
 
 	mu      sync.Mutex
 	linking context.CancelFunc
+
+	// Our messages waiting to be sent, in order; one worker sends them.
+	outbox chan outgoing
 }
 
 func emit(l Listener, kind string, payload any) {
@@ -91,7 +94,11 @@ func NewClient(dir string, deviceName string, listener Listener) (*Client, error
 	if err != nil {
 		return nil, err
 	}
-	c := &Client{dir: dir, listener: listener, store: messages, log: log}
+	if err := messages.failInterrupted(); err != nil {
+		return nil, err
+	}
+	c := &Client{dir: dir, listener: listener, store: messages, log: log, outbox: make(chan outgoing, 256)}
+	go c.sendQueued()
 	c.wa = whatsmeow.NewClient(device, log.Sub("client"))
 	c.wa.AddEventHandler(c.onEvent)
 	go c.expireLoop()

@@ -85,22 +85,8 @@ func (c *Client) SendText(chat, text, quoteID, spansJSON string) (string, error)
 	if context.StanzaID == nil && len(mentions) == 0 && expires == 0 {
 		msg = &waE2E.Message{Conversation: proto.String(body)}
 	}
-	ctx, cancel := timeout()
-	defer cancel()
-	resp, err := c.wa.SendMessage(ctx, jid, msg)
-	if err != nil {
-		return "", err
-	}
-	sent := row{
-		Chat: jid.String(), ID: resp.ID, Sender: c.ownJID().String(), FromMe: true, Ts: resp.Timestamp.UnixMilli(),
-		Kind: "text", Text: body, QuoteID: quoteID, QuoteSender: quoteSender, QuoteText: quoteText, Status: "sent",
-		Mentions: mentions, ExpiresAt: expiresAt(resp.Timestamp.UnixMilli(), expires),
-	}
-	if err := c.store.putMessage(sent); err != nil {
-		return "", err
-	}
-	emit(c.listener, "chats", nil)
-	return marshal(c.toJSONMessage(sent, nil))
+	r := row{Kind: "text", Text: body, QuoteID: quoteID, QuoteSender: quoteSender, QuoteText: quoteText, Mentions: mentions}
+	return c.queue(jid, r, func() (*waE2E.Message, error) { return msg, nil })
 }
 
 // stampExpiry marks an outgoing message with the chat's disappearing
