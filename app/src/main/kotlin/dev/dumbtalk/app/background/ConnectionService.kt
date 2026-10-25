@@ -12,6 +12,8 @@ import android.content.Intent
 import android.content.pm.ServiceInfo
 import android.net.ConnectivityManager
 import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
 import android.os.IBinder
 import android.os.PowerManager
 import android.os.SystemClock
@@ -22,6 +24,7 @@ import dev.dumbtalk.app.R
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ServiceId
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withTimeoutOrNull
@@ -38,8 +41,28 @@ import kotlinx.coroutines.withTimeoutOrNull
  */
 class ConnectionService : Service() {
     private var watcher: Job? = null
-    private val network = object : ConnectivityManager.NetworkCallback() {
-        override fun onAvailable(network: Network) = reconnect(networkChanged = true)
+
+    /**
+     * Wi-Fi and mobile data coming and going. The default network alone
+     * isn't enough: behind an always-on VPN (as on DumberOS) it stays the
+     * VPN while the network under it changes.
+     */
+    private val networks = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = networkChanged()
+        override fun onLost(network: Network) = networkChanged()
+    }
+    private var registeredAt = 0L
+    private var settling: Job? = null
+
+    /** Reconnects once a switch has settled; the networks already up when registering are skipped. */
+    private fun networkChanged() {
+        if (SystemClock.elapsedRealtime() - registeredAt < SETTLE_MILLIS) return
+        val app = application as DumbTalkApp
+        settling?.cancel()
+        settling = app.scope.launch {
+            delay(SETTLE_MILLIS)
+            app.registry.reconnectAll(networkChanged = true)
+        }
     }
 
     override fun onBind(intent: Intent?): IBinder? = null
@@ -66,20 +89,19 @@ class ConnectionService : Service() {
                 }
             }.collect { text -> manager.notify(ID, notification(text)) }
         }
-        // Called at once with the current network, then on each change.
-        runCatching { getSystemService(ConnectivityManager::class.java).registerDefaultNetworkCallback(network) }
+        registeredAt = SystemClock.elapsedRealtime()
+        val physical = NetworkRequest.Builder()
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+            .addCapability(NetworkCapabilities.NET_CAPABILITY_NOT_VPN)
+            .build()
+        runCatching { getSystemService(ConnectivityManager::class.java).registerNetworkCallback(physical, networks) }
         Watchdog.schedule(this)
-    }
-
-    private fun reconnect(networkChanged: Boolean) {
-        val app = application as DumbTalkApp
-        app.scope.launch { app.registry.reconnectAll(networkChanged) }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int = START_STICKY
 
     override fun onDestroy() {
-        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(network) }
+        runCatching { getSystemService(ConnectivityManager::class.java).unregisterNetworkCallback(networks) }
         watcher?.cancel()
         super.onDestroy()
     }
@@ -100,6 +122,7 @@ class ConnectionService : Service() {
 
     companion object {
         private const val CHANNEL = "dumbtalk-connection"
+        private const val SETTLE_MILLIS = 2_000L
         private const val ID = 1
 
         fun start(context: Context) {
