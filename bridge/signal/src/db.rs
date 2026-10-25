@@ -218,6 +218,8 @@ impl Db {
         // Our messages until they're sent: the encoded DataMessage and, while
         // its attachments aren't uploaded yet, the files to upload (JSON).
         sqlx::raw_sql("CREATE TABLE IF NOT EXISTS outbox (chat TEXT NOT NULL, id TEXT NOT NULL, body BLOB NOT NULL, files TEXT NOT NULL DEFAULT '', voice INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,id))").execute(&pool).await?;
+        // When each recipient got, read or played (viewed) a message of ours, in ms.
+        sqlx::raw_sql("CREATE TABLE IF NOT EXISTS receipts (chat TEXT NOT NULL, msg TEXT NOT NULL, reader TEXT NOT NULL, delivered_at INTEGER NOT NULL DEFAULT 0, read_at INTEGER NOT NULL DEFAULT 0, played_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,msg,reader))").execute(&pool).await?;
         // Sends cut short (the app was killed) are failed, to retry.
         sqlx::raw_sql("UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'sending'").execute(&pool).await?;
         // One-off upgrades already done, by name.
@@ -228,7 +230,7 @@ impl Db {
     }
 
     pub async fn clear(&self) -> Result<()> {
-        sqlx::raw_sql("DELETE FROM reactions; DELETE FROM pins; DELETE FROM polls; DELETE FROM poll_votes; DELETE FROM link_previews; DELETE FROM expiries; DELETE FROM message_attachments; DELETE FROM outbox; DELETE FROM messages; DELETE FROM chats; DELETE FROM names;")
+        sqlx::raw_sql("DELETE FROM reactions; DELETE FROM pins; DELETE FROM polls; DELETE FROM poll_votes; DELETE FROM link_previews; DELETE FROM expiries; DELETE FROM message_attachments; DELETE FROM outbox; DELETE FROM receipts; DELETE FROM messages; DELETE FROM chats; DELETE FROM names;")
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -596,6 +598,33 @@ impl Db {
             .execute(&self.pool)
             .await?;
         Ok(())
+    }
+
+    /// Records when our message `id` reached `reader` in one way ("delivered",
+    /// "read" or "played"), keeping the first time it did.
+    pub async fn set_receipt(&self, chat: &str, id: &str, reader: &str, kind: &str, at: i64) -> Result<()> {
+        let column = match kind {
+            "delivered" => "delivered_at",
+            "read" => "read_at",
+            "played" => "played_at",
+            _ => return Ok(()),
+        };
+        let sql = format!(
+            "INSERT INTO receipts (chat, msg, reader, {column}) VALUES (?, ?, ?, ?) \
+             ON CONFLICT (chat, msg, reader) DO UPDATE SET {column} = CASE WHEN {column} = 0 THEN excluded.{column} ELSE {column} END"
+        );
+        sqlx::query(AssertSqlSafe(sql)).bind(chat).bind(id).bind(reader).bind(at).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Who our message reached and when: (reader, delivered, read, played).
+    pub async fn receipts(&self, chat: &str, id: &str) -> Result<Vec<(String, i64, i64, i64)>> {
+        let rows = sqlx::query("SELECT reader, delivered_at, read_at, played_at FROM receipts WHERE chat = ? AND msg = ? ORDER BY reader")
+            .bind(chat)
+            .bind(id)
+            .fetch_all(&self.pool)
+            .await?;
+        Ok(rows.iter().map(|r| (r.get("reader"), r.get("delivered_at"), r.get("read_at"), r.get("played_at"))).collect())
     }
 
     /// Keeps a message to send (or resend) under its id.
@@ -1001,6 +1030,24 @@ mod tests {
         db.delete_outbox("c:abc", "1:me").await.unwrap();
         assert_eq!(status(&db, "1:me").await, "sent");
         assert_eq!(db.outbox("c:abc", "1:me").await.unwrap(), None);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn receipts_keep_each_recipients_first_times() {
+        let dir = std::env::temp_dir().join(format!("sigbridge-receipts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        let _ = std::fs::remove_file(&path);
+        let db = Db::open(&path).await.unwrap();
+        db.set_receipt("g:1", "5:me", "ann", "delivered", 100).await.unwrap();
+        db.set_receipt("g:1", "5:me", "ann", "read", 200).await.unwrap();
+        db.set_receipt("g:1", "5:me", "ann", "read", 300).await.unwrap();
+        db.set_receipt("g:1", "5:me", "bob", "delivered", 150).await.unwrap();
+        assert_eq!(
+            db.receipts("g:1", "5:me").await.unwrap(),
+            vec![("ann".to_string(), 100, 200, 0), ("bob".to_string(), 150, 0, 0)],
+        );
         std::fs::remove_dir_all(&dir).ok();
     }
 }

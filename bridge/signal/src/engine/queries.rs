@@ -186,6 +186,21 @@ impl Engine {
         Ok(json!({ "chats": chats, "archivedCount": archived_count }).to_string())
     }
 
+    /// Who our message reached and when: [{name, delivered?, read?, played?}] (ms).
+    pub(super) async fn receipts_json(self: &Rc<Self>, chat: &str, id: &str) -> Result<String, BridgeError> {
+        let mut out = Vec::new();
+        for (reader, delivered, read, played) in self.db.receipts(chat, id).await.map_err(fail)? {
+            let mut entry = json!({ "name": self.name_for(&reader).await });
+            for (key, at) in [("delivered", delivered), ("read", read), ("played", played)] {
+                if at > 0 {
+                    entry[key] = json!(at);
+                }
+            }
+            out.push(entry);
+        }
+        Ok(Value::Array(out).to_string())
+    }
+
     pub(super) async fn chat(self: &Rc<Self>, chat: &str) -> Result<Value, BridgeError> {
         thread_of(chat)?;
         let row = self

@@ -127,6 +127,7 @@ private class RustBridge(private val client: SignalClient) : NativeBridge {
     override fun searchJson(query: String): String = client.searchJson(query)
     override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String = client.sendText(chat, text, quoteId, spansJson)
     override fun retry(chat: String, id: String): String = client.retry(chat, id)
+    override fun receiptsJson(chat: String, id: String): String = client.receiptsJson(chat, id)
     override fun membersJson(chat: String): String = client.membersJson(chat)
     override fun setExpireTimer(chat: String, seconds: Int) = client.setExpireTimer(chat, seconds.toUInt())
     override fun respondRequest(chat: String, action: String) = client.respondRequest(chat, action)

@@ -27,6 +27,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.unit.dp
 import dev.dumbtalk.app.ui.AppIcon
 import dev.dumbtalk.app.ui.CenteredMessage
+import dev.dumbtalk.app.ui.describePresence
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
 import dev.dumbtalk.app.ui.MenuTile
@@ -149,7 +150,11 @@ internal fun GroupInfoPanel(
             when {
                 members == null -> BasicText("Loading…", style = Type.small.copy(color = Palette.muted))
                 else -> members.forEach { member ->
-                    val detail = listOfNotNull("admin".takeIf { member.isAdmin }, "invited".takeIf { member.isPending }).joinToString(" · ").ifEmpty { null }
+                    val detail = listOfNotNull(
+                        "admin".takeIf { member.isAdmin },
+                        "invited".takeIf { member.isPending },
+                        describePresence(model.memberPresence[member.id]),
+                    ).joinToString(" · ").ifEmpty { null }
                     if (conversation.isAdmin) {
                         ListButton(member.name.forDisplay(), { onRemove(member) }, description = listOfNotNull(detail, "Select to remove").joinToString(" · "))
                     } else {

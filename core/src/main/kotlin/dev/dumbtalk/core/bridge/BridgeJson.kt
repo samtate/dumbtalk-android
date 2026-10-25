@@ -13,6 +13,7 @@ import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.Poll
 import dev.dumbtalk.core.Quote
 import dev.dumbtalk.core.Reaction
+import dev.dumbtalk.core.Presence
 import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.SearchResult
 import dev.dumbtalk.core.ServiceId
@@ -173,6 +174,19 @@ class BridgeJson(private val service: ServiceId, private val typingNames: (Strin
         messages(encoded)
             .filter { conversation == null || it.conversationId == conversation.id }
             .map { SearchResult(it.id, it.conversationId, it.sender.orEmpty(), it.text.orEmpty(), it.sentAt) }
+
+    fun readers(encoded: String): List<Receipt.Reader> = JSONArray(encoded).objects().map {
+        fun at(key: String) = it.optLong(key).takeIf { at -> at > 0 }
+        Receipt.Reader(it.optString("name").ifBlank { "Someone" }, at("delivered"), at("read"), at("played"))
+    }
+
+    fun presence(encoded: String): Map<String, Presence> {
+        val json = JSONObject(encoded)
+        return json.keys().asSequence().associateWith { id ->
+            val entry = json.getJSONObject(id)
+            Presence(entry.optBoolean("online"), entry.optLong("lastSeen").takeIf { it > 0 })
+        }
+    }
 
     private fun receipt(status: String) = when (status) {
         "sent" -> Receipt(Receipt.State.SENT)

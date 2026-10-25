@@ -21,6 +21,8 @@ func (c *Client) onEvent(raw any) {
 	case *events.Connected, *events.Disconnected, *events.LoggedOut, *events.StreamReplaced, *events.PairSuccess:
 		emit(c.listener, "status", nil)
 		if _, ok := evt.(*events.Connected); ok {
+			// A new connection starts with no presence subscriptions.
+			c.subscribed.Clear()
 			go c.refreshGroups()
 			go c.refreshBlocklist()
 		}
@@ -53,6 +55,8 @@ func (c *Client) onEvent(raw any) {
 		}
 	case *events.Receipt:
 		c.onReceipt(evt)
+	case *events.Presence:
+		c.onPresence(evt)
 	case *events.ChatPresence:
 		emit(c.listener, "typing", map[string]any{
 			"chat":   c.canonical(evt.Chat).String(),
@@ -342,16 +346,23 @@ func (c *Client) onReceipt(evt *events.Receipt) {
 		emit(c.listener, "chats", nil)
 		return
 	}
-	var status string
+	var status, kind string
 	switch evt.Type {
 	case types.ReceiptTypeDelivered:
-		status = "delivered"
-	case types.ReceiptTypeRead, types.ReceiptTypePlayed:
-		status = "read"
+		status, kind = "delivered", "delivered"
+	case types.ReceiptTypeRead:
+		status, kind = "read", "read"
+	case types.ReceiptTypePlayed:
+		status, kind = "read", "played"
 	default:
 		return
 	}
 	c.store.setStatus(chat, evt.MessageIDs, status)
+	// Who it reached, and when: a group's members each send their own.
+	reader := c.canonical(evt.Sender.ToNonAD()).String()
+	if err := c.store.setReceipt(chat, evt.MessageIDs, reader, kind, evt.Timestamp.UnixMilli()); err != nil {
+		c.log.Warnf("store receipt: %v", err)
+	}
 	emit(c.listener, "messages", map[string]string{"chat": chat})
 	emit(c.listener, "chats", nil)
 }

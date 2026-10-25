@@ -4,6 +4,9 @@ import dev.dumbtalk.core.Contact
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.core.Conversation
+import dev.dumbtalk.core.ConversationKind
+import dev.dumbtalk.core.Presence
+import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ConversationUpdate
 import dev.dumbtalk.core.Direction
@@ -66,6 +69,10 @@ interface NativeBridge {
     fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String
     /** Sends a failed message again under its first id, so nobody gets it twice; returns it. */
     fun retry(chat: String, id: String): String = throw BridgeException("Retrying is unavailable")
+    /** Who our message reached and when: [{"name", "delivered"?, "read"?, "played"?}] in ms. */
+    fun receiptsJson(chat: String, id: String): String = "[]"
+    /** What's known of these people ([idsJson], a JSON array of ids) as {id: {"online", "lastSeen"?}}. */
+    fun presenceJson(idsJson: String): String = "{}"
     /** The chat's other people: [{"id", "name", "admin"?, "pending"?}]. */
     fun membersJson(chat: String): String = "[]"
     fun setExpireTimer(chat: String, seconds: Int) { throw BridgeException("Disappearing messages are unavailable") }
@@ -165,6 +172,7 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
                 ?.let { emit(ServiceEvent.MessagesChanged(id, json.conversationId(it))) }
             "incoming" -> scope.launch { announceIncoming(data.getString("chat"), data.getString("id")) }
             "typing" -> onTyping(data.getString("chat"), data.optString("sender"), data.optBoolean("active"))
+            "presence" -> emit(ServiceEvent.PresenceChanged(id))
             "log" -> log(data.optString("message"))
             else -> linkEvents.trySend(kind to data)
         }
@@ -298,6 +306,22 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
 
     override suspend fun listMembers(conversation: Conversation): List<Member> =
         json.members(bridge { membersJson(conversation.remoteId) })
+
+    override suspend fun messageDetails(conversation: Conversation, message: Message): Message {
+        if (message.direction != Direction.OUTGOING) return message
+        val readers = json.readers(bridge { receiptsJson(conversation.remoteId, message.id) })
+        return message.copy(receipt = (message.receipt ?: Receipt(Receipt.State.SENT)).copy(readBy = readers))
+    }
+
+    override suspend fun presence(conversation: Conversation): Presence? =
+        if (conversation.kind == ConversationKind.GROUP) null
+        else presenceOf(listOf(conversation.remoteId))[conversation.remoteId]
+
+    override suspend fun memberPresence(conversation: Conversation, members: List<Member>): Map<String, Presence> =
+        presenceOf(members.map { it.id })
+
+    private suspend fun presenceOf(ids: List<String>): Map<String, Presence> =
+        json.presence(bridge { presenceJson(JSONArray(ids).toString()) })
 
     override suspend fun setBlocked(conversation: Conversation, blocked: Boolean) {
         bridge { setBlocked(conversation.remoteId, blocked) }

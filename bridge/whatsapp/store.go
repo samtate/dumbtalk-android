@@ -42,6 +42,15 @@ CREATE TABLE IF NOT EXISTS messages (
 	PRIMARY KEY (chat, id)
 );
 CREATE INDEX IF NOT EXISTS messages_by_time ON messages (chat, ts);
+CREATE TABLE IF NOT EXISTS receipts (
+	chat TEXT NOT NULL,
+	msg TEXT NOT NULL,
+	reader TEXT NOT NULL,
+	delivered_at INTEGER NOT NULL DEFAULT 0,
+	read_at INTEGER NOT NULL DEFAULT 0,
+	played_at INTEGER NOT NULL DEFAULT 0,
+	PRIMARY KEY (chat, msg, reader)
+);
 CREATE TABLE IF NOT EXISTS reactions (
 	chat TEXT NOT NULL,
 	msg TEXT NOT NULL,
@@ -290,6 +299,48 @@ func (s *msgStore) setStatus(chat string, ids []string, status string) error {
 		}
 	}
 	return nil
+}
+
+// receiptColumns are the per-recipient times, by receipt kind.
+var receiptColumns = map[string]string{"delivered": "delivered_at", "read": "read_at", "played": "played_at"}
+
+// setReceipt records when a message of ours reached reader in one way
+// (delivered, read or played), keeping the first time it did.
+func (s *msgStore) setReceipt(chat string, ids []string, reader, kind string, at int64) error {
+	column, ok := receiptColumns[kind]
+	if !ok {
+		return nil
+	}
+	for _, id := range ids {
+		if _, err := s.db.Exec(`INSERT INTO receipts (chat, msg, reader, `+column+`) VALUES (?, ?, ?, ?)
+			ON CONFLICT (chat, msg, reader) DO UPDATE SET `+column+` = CASE WHEN `+column+` = 0 THEN excluded.`+column+` ELSE `+column+` END`,
+			chat, id, reader, at); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+type receiptRow struct {
+	Reader                  string
+	Delivered, Read, Played int64
+}
+
+func (s *msgStore) receipts(chat, msg string) ([]receiptRow, error) {
+	rows, err := s.db.Query(`SELECT reader, delivered_at, read_at, played_at FROM receipts WHERE chat = ? AND msg = ? ORDER BY reader`, chat, msg)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out []receiptRow
+	for rows.Next() {
+		var r receiptRow
+		if err := rows.Scan(&r.Reader, &r.Delivered, &r.Read, &r.Played); err != nil {
+			return nil, err
+		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
 }
 
 func (s *msgStore) setReaction(chat, msg, sender, emoji string) error {

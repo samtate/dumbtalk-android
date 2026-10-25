@@ -9,11 +9,14 @@ import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.ConversationPage
 import dev.dumbtalk.core.ConversationUpdate
+import dev.dumbtalk.core.Direction
 import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.MessagePage
 import dev.dumbtalk.core.MessagingService
 import dev.dumbtalk.core.OutgoingAttachment
+import dev.dumbtalk.core.Presence
+import dev.dumbtalk.core.Receipt
 import dev.dumbtalk.core.Reaction
 import dev.dumbtalk.core.SearchResult
 import dev.dumbtalk.core.ServiceEvent
@@ -153,6 +156,10 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             is TdApi.UpdateAuthorizationState -> onAuthorizationState(update.authorizationState)
             is TdApi.UpdateConnectionState -> onConnectionState(update.state)
             is TdApi.UpdateUser -> users[update.user.id] = update.user
+            is TdApi.UpdateUserStatus -> {
+                users[update.userId]?.let { synchronized(it) { it.status = update.status } }
+                mutableEvents.tryEmit(ServiceEvent.PresenceChanged(id))
+            }
             is TdApi.UpdateBasicGroup -> basicGroups[update.basicGroup.id] = update.basicGroup
             is TdApi.UpdateSupergroup -> supergroups[update.supergroup.id] = update.supergroup
             is TdApi.UpdateChatActionBar -> chat(update.chatId) { actionBar = update.actionBar }
@@ -714,6 +721,50 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
 
     private fun isAdminStatus(status: TdApi.ChatMemberStatus?) =
         status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
+
+    override suspend fun presence(conversation: Conversation): Presence? {
+        val userId = (requireChat(conversation).type as? TdApi.ChatTypePrivate)?.userId ?: return null
+        if (userId == myUserId()) return null
+        return user(userId)?.let { synchronized(it) { presenceOf(it.status) } }
+    }
+
+    override suspend fun memberPresence(conversation: Conversation, members: List<Member>): Map<String, Presence> =
+        members.mapNotNull { member ->
+            val user = member.id.toLongOrNull()?.let { user(it) } ?: return@mapNotNull null
+            synchronized(user) { presenceOf(user.status) }?.let { member.id to it }
+        }.toMap()
+
+    /** Telegram only says roughly when, for people who hide their last seen. */
+    private fun presenceOf(status: TdApi.UserStatus?): Presence? = when (status) {
+        is TdApi.UserStatusOnline -> Presence(online = true)
+        is TdApi.UserStatusOffline -> Presence(online = false, lastSeen = status.wasOnline * 1000L)
+        is TdApi.UserStatusRecently -> Presence(online = false, approximately = Presence.Approximately.RECENTLY)
+        is TdApi.UserStatusLastWeek -> Presence(online = false, approximately = Presence.Approximately.WITHIN_A_WEEK)
+        is TdApi.UserStatusLastMonth -> Presence(online = false, approximately = Presence.Approximately.WITHIN_A_MONTH)
+        else -> null
+    }
+
+    /**
+     * Who has read our message: a group's viewers (Telegram keeps them for
+     * small groups, for a week), or when the other person in a private chat
+     * read it, if both of you show read times. Telegram has no delivered step.
+     */
+    override suspend fun messageDetails(conversation: Conversation, message: Message): Message {
+        if (message.direction != Direction.OUTGOING) return message
+        val chat = requireChat(conversation)
+        val id = message.id.toLongOrNull() ?: return message
+        val readers = runCatching {
+            if (chat.type is TdApi.ChatTypePrivate) {
+                val read = requireClient().send(TdApi.GetMessageReadDate(chat.id, id)) as? TdApi.MessageReadDateRead
+                listOfNotNull(read?.let { Receipt.Reader(conversation.title, readAt = it.readDate * 1000L) })
+            } else {
+                requireClient().send(TdApi.GetMessageViewers(chat.id, id)).viewers.map { viewer ->
+                    Receipt.Reader(user(viewer.userId)?.let(mapper::userName) ?: "Telegram user", readAt = viewer.viewDate * 1000L)
+                }
+            }
+        }.getOrDefault(emptyList())
+        return message.copy(receipt = (message.receipt ?: Receipt(Receipt.State.SENT)).copy(readBy = readers))
+    }
 
     override suspend fun listMembers(conversation: Conversation): List<Member> {
         val chat = requireChat(conversation)

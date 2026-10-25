@@ -419,6 +419,7 @@ impl Engine {
             Command::ClosePoll { chat, id, reply } => send(reply, self.close_poll(&chat, &id).await.and_then(|_| ok())),
             Command::Search { query, reply } => send(reply, self.search(&query).await),
             Command::Retry { chat, id, reply } => send(reply, self.retry(&chat, &id).await),
+            Command::Receipts { chat, id, reply } => send(reply, self.receipts_json(&chat, &id).await),
             Command::SendText {
                 chat,
                 text,

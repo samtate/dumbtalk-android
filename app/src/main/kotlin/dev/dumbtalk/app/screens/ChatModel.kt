@@ -13,6 +13,7 @@ import dev.dumbtalk.core.Member
 import dev.dumbtalk.core.Message
 import dev.dumbtalk.core.mergeAlbums
 import dev.dumbtalk.core.MessagingService
+import dev.dumbtalk.core.Presence
 import dev.dumbtalk.core.TextSpan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
@@ -218,6 +219,26 @@ class ChatModel(
         }
         return spans.sortedBy { it.start }
     }
+
+    // endregion
+
+    // region Presence and receipts
+
+    /** The other person, online or last seen; null in groups or where the network doesn't say. */
+    var presence by mutableStateOf<Presence?>(null)
+        private set
+    /** Each loaded member's, by [Member.id]. */
+    var memberPresence by mutableStateOf<Map<String, Presence>>(emptyMap())
+        private set
+
+    /** Asks again; the screen calls this on opening, on [ServiceEvent.PresenceChanged] and once members load. */
+    suspend fun refreshPresence() {
+        presence = runCatching { service.presence(conversation()) }.getOrNull()
+        members?.let { memberPresence = runCatching { service.memberPresence(conversation(), it) }.getOrDefault(emptyMap()) }
+    }
+
+    /** [message] with who it reached and when, as far as the network says. */
+    suspend fun details(message: Message): Message = runCatching { service.messageDetails(conversation(), message) }.getOrDefault(message)
 
     // endregion
 

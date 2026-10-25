@@ -101,19 +101,22 @@ impl Engine {
             }
             ContentBody::EditMessage(edit) => self.apply_edit(&chat, &sender, edit).await?,
             ContentBody::ReceiptMessage(ReceiptMessage { r#type, timestamp }) => {
-                let status = match receipt_message::Type::try_from(r#type.unwrap_or_default()) {
-                    Ok(receipt_message::Type::Delivery) => "delivered",
-                    Ok(receipt_message::Type::Read) | Ok(receipt_message::Type::Viewed) => "read",
+                // The message's status, and the kind of receipt kept per recipient.
+                let (status, kind) = match receipt_message::Type::try_from(r#type.unwrap_or_default()) {
+                    Ok(receipt_message::Type::Delivery) => ("delivered", "delivered"),
+                    Ok(receipt_message::Type::Read) => ("read", "read"),
+                    Ok(receipt_message::Type::Viewed) => ("read", "played"),
                     _ => return Ok(()),
                 };
                 let mut changed = HashSet::new();
                 for ts in timestamp {
-                    if let Some(chat) = self
-                        .db
-                        .advance_status(&message_id(*ts, &me), status)
-                        .await
-                        .map_err(fail)?
-                    {
+                    let id = message_id(*ts, &me);
+                    if let Some(chat) = self.db.advance_status(&id, status).await.map_err(fail)? {
+                        changed.insert(chat);
+                    }
+                    // Who sent this receipt and when: in a group, each member does.
+                    if let Some(chat) = self.db.chat_of_message(&id).await.map_err(fail)? {
+                        self.db.set_receipt(&chat, &id, &sender, kind, content.timestamp() as i64).await.map_err(fail)?;
                         changed.insert(chat);
                     }
                 }

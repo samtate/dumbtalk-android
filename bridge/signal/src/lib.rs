@@ -87,6 +87,7 @@ pub(crate) enum Command {
         reply: Reply,
     },
     Retry { chat: String, id: String, reply: Reply },
+    Receipts { chat: String, id: String, reply: Reply },
     SendText {
         chat: String,
         text: String,
@@ -293,6 +294,11 @@ impl SignalClient {
 
     pub fn search_json(&self, query: String) -> Result<String, BridgeError> {
         self.call(|reply| Command::Search { query, reply })
+    }
+
+    /// Who our message reached and when: [{name, delivered?, read?, played?}] (ms).
+    pub fn receipts_json(&self, chat: String, id: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::Receipts { chat, id, reply })
     }
 
     /// Sends a failed message of ours again, with its first timestamp; returns it.

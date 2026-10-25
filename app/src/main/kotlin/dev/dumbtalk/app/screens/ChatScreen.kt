@@ -64,6 +64,7 @@ import dev.dumbtalk.app.ui.ServiceIcon
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.describePresence
 import dev.dumbtalk.app.ui.focusAfterFrame
 import dev.dumbtalk.app.ui.focusCard
 import dev.dumbtalk.app.ui.moveFocusOn
@@ -274,6 +275,12 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
             }
     }
 
+    // Online / last seen: asked on opening, when members load, and whenever it changes.
+    LaunchedEffect(model.members) { model.refreshPresence() }
+    LaunchedEffect(Unit) {
+        service.events.filter { it is ServiceEvent.PresenceChanged }.conflate().collect { model.refreshPresence() }
+    }
+
     /** Something covers the chat: a panel, a picker, a viewer or a confirmation. */
     val covered = showDeleteThread || deletingMessage != null || tool != null || pendingJump != null || actionMessageId != null ||
         showOptions || showPollCreator || votingPoll != null || closingPoll != null || media.overlay != null || emojiFor != null ||
@@ -455,6 +462,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
 
         actionMessage != null && !showOptions && closingPoll == null -> MessageActions(
             conversation, actionMessage, capabilities,
+            loadDetails = model::details,
             focusedLabel = actionFocusLabel,
             onFocused = { actionFocusLabel = it },
             onClose = { actionMessageId = null },
@@ -578,7 +586,9 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     "Offline · messages send when ${conversation.serviceId.label} reconnects",
                     style = Type.small.copy(color = Palette.error),
                     modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 3.dp),
-                )
+                ) else describePresence(model.presence)?.let {
+                    BasicText(it, style = Type.small, modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 3.dp))
+                }
                 Box(Modifier.weight(1f)) {
                     val shown = model.messages
                     when {

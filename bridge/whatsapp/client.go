@@ -44,6 +44,10 @@ type Client struct {
 
 	// Our messages waiting to be sent, in order; one worker sends them.
 	outbox chan outgoing
+
+	// People's online status as last reported (JID → presenceState), and
+	// whose WhatsApp has been asked to report this connection.
+	presence, subscribed sync.Map
 }
 
 func emit(l Listener, kind string, payload any) {

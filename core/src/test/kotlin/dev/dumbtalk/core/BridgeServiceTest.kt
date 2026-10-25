@@ -58,6 +58,8 @@ private class FakeBridge : NativeBridge {
         call("retry:$id")
         return """{"id":"$id","chat":"$chat","fromMe":true,"ts":6,"kind":"text","text":"again","status":"sending","reactions":[]}"""
     }
+    override fun receiptsJson(chat: String, id: String) = """[{"name":"Ann","delivered":100,"read":200},{"name":"Bob","delivered":150}]"""
+    override fun presenceJson(idsJson: String) = """{"c:1":{"online":false,"lastSeen":500}}"""
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = call("react:$id:$emoji:$remove")
     override fun edit(chat: String, id: String, text: String) = call("edit:$id")
     override fun delete(chat: String, id: String) = call("delete:$id")
@@ -166,6 +168,22 @@ class BridgeServiceTest {
         fun status(value: String) = json.message("""{"id":"m","chat":"c:1","fromMe":true,"ts":1,"kind":"text","text":"x","status":"$value","reactions":[]}""").receipt
         assertEquals(null, status("sending"))
         assertEquals(Receipt.State.FAILED, status("failed")?.state)
+    }
+
+    @Test
+    fun detailsSayWhoAMessageReachedAndWhen() = runTest {
+        val service = service()
+        val sent = Message("m2", chat.id, 6, Direction.OUTGOING, receipt = Receipt(Receipt.State.READ))
+        val readers = service.messageDetails(chat, sent).receipt!!.readBy
+        assertEquals(listOf(Receipt.Reader("Ann", 100, 200), Receipt.Reader("Bob", 150)), readers)
+        // Nothing to say about other people's messages.
+        val received = Message("m1", chat.id, 5, Direction.INCOMING)
+        assertEquals(received, service.messageDetails(chat, received))
+    }
+
+    @Test
+    fun presenceIsTheOtherPersonsInAOneToOneChat() = runTest {
+        assertEquals(Presence(online = false, lastSeen = 500), service().presence(chat))
     }
 
     @Test

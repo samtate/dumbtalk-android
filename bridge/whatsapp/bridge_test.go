@@ -314,3 +314,23 @@ func TestOutboxStatuses(t *testing.T) {
 		t.Fatalf("failed then read = %q, want read", status("C"))
 	}
 }
+
+func TestReceiptsPerRecipient(t *testing.T) {
+	s, err := openStore(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat := "123-456@g.us"
+	s.setReceipt(chat, []string{"M"}, "a@s.whatsapp.net", "delivered", 100)
+	s.setReceipt(chat, []string{"M"}, "a@s.whatsapp.net", "read", 200)
+	s.setReceipt(chat, []string{"M"}, "a@s.whatsapp.net", "read", 300) // the first time is kept
+	s.setReceipt(chat, []string{"M"}, "b@s.whatsapp.net", "delivered", 150)
+	got, err := s.receipts(chat, "M")
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []receiptRow{{"a@s.whatsapp.net", 100, 200, 0}, {"b@s.whatsapp.net", 150, 0, 0}}
+	if len(got) != 2 || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("receipts = %+v, want %+v", got, want)
+	}
+}

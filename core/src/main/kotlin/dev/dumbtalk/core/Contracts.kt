@@ -187,9 +187,16 @@ data class Receipt(
 ) {
     /** FAILED: the service gave up sending it (shown as a red !). */
     enum class State { SENT, DELIVERED, READ, FAILED }
-    data class Reader(val name: String, val status: Status, val at: Long? = null) {
-        enum class Status { DELIVERED, READ, VIEWED }
-    }
+    /** One recipient of our message and when it reached them (ms); null for a step not reported. */
+    data class Reader(val name: String, val deliveredAt: Long? = null, val readAt: Long? = null, val playedAt: Long? = null)
+}
+
+/**
+ * Whether someone is online, or when they last were ([lastSeen], ms). Some
+ * networks only say roughly when ([approximately]), or nothing at all.
+ */
+data class Presence(val online: Boolean, val lastSeen: Long? = null, val approximately: Approximately? = null) {
+    enum class Approximately { RECENTLY, WITHIN_A_WEEK, WITHIN_A_MONTH }
 }
 
 data class Reaction(val emoji: String, val author: String, val isOwn: Boolean, val authorId: String? = null, val avatarPath: String? = null)
@@ -282,6 +289,8 @@ sealed interface ServiceEvent {
     data class StatusChanged(override val serviceId: ServiceId) : ServiceEvent
     data class ConversationsChanged(override val serviceId: ServiceId) : ServiceEvent
     data class MessagesChanged(override val serviceId: ServiceId, val conversationId: String) : ServiceEvent
+    /** Someone's online status changed; screens showing it ask again. */
+    data class PresenceChanged(override val serviceId: ServiceId) : ServiceEvent
     data class IncomingMessage(
         override val serviceId: ServiceId,
         val conversation: Conversation,
@@ -347,7 +356,14 @@ interface MessagingService {
     suspend fun listMembers(conversation: Conversation): List<Member> = conversation.members
     suspend fun retryMessage(conversation: Conversation, message: Message): Unit = unsupported("retrying messages")
     suspend fun setTyping(conversation: Conversation, active: Boolean) {}
+    /** [message] with what the network knows of who has it: [Receipt.readBy], per recipient. */
     suspend fun messageDetails(conversation: Conversation, message: Message): Message = message
+
+    /** A one-to-one chat's other person, online or last seen; null where the network doesn't say. */
+    suspend fun presence(conversation: Conversation): Presence? = null
+
+    /** The same for a group's [members], by [Member.id]; only those the network reports. */
+    suspend fun memberPresence(conversation: Conversation, members: List<Member>): Map<String, Presence> = emptyMap()
 
     suspend fun react(conversation: Conversation, message: Message, emoji: String, remove: Boolean = false): Unit =
         unsupported("reactions")

@@ -19,6 +19,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,6 +32,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.dumbtalk.app.ui.AppIcon
+import dev.dumbtalk.app.ui.formatWhen
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.Palette
 import dev.dumbtalk.app.ui.SoftkeyAction
@@ -74,9 +76,12 @@ internal fun MessageActions(
     onChatOptions: () -> Unit = {},
     onMoreReactions: () -> Unit = {},
     onForward: () -> Unit = {},
+    /** The message with who it reached and when, asked of the service when the panel opens. */
+    loadDetails: suspend (Message) -> Message = { it },
     focusedLabel: String? = null,
     onFocused: (String) -> Unit = {},
 ) {
+    val detailed by produceState(message, message) { value = loadDetails(message) }
     val context = LocalContext.current
     val requester = remember { FocusRequester() }
     LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
@@ -134,8 +139,17 @@ internal fun MessageActions(
             MenuGrid(actions, requester, focusedLabel, onFocused)
             val details = buildList {
                 message.reactions.forEach { add("${it.author}: ${it.emoji}") }
+                if (outgoing) add("Sent ${formatWhen(message.sentAt)}")
                 message.receipt?.let { add("Status: ${it.state.name.lowercase()}") }
-                message.receipt?.readBy?.forEach { add("${it.name}: ${it.status.name.lowercase()}") }
+                // Each recipient: when it reached them, was read, was played.
+                detailed.receipt?.readBy?.forEach { reader ->
+                    val steps = listOfNotNull(
+                        reader.deliveredAt?.let { "delivered ${formatWhen(it)}" },
+                        reader.readAt?.let { "read ${formatWhen(it)}" },
+                        reader.playedAt?.let { "played ${formatWhen(it)}" },
+                    )
+                    add("${reader.name}: ${steps.joinToString(" · ")}")
+                }
             }
             if (details.isNotEmpty()) {
                 Column(
