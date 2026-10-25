@@ -9,6 +9,12 @@ open class TestApp : DumbTalkApp() {
     override val usePixelFallbackFonts = false
     override val guidesUser = false
 
+    /** How many times the app asked to restart (demo, backup); a real restart would end the test JVM. */
+    var restarts = 0
+    override fun restart(activity: android.app.Activity) {
+        restarts++
+    }
+
     override fun createServices(): List<MessagingService> = ServiceId.entries.filter { it != ServiceId.SMS }.map { DemoService(it, scope) }
 }
 

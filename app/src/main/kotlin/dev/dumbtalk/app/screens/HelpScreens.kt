@@ -210,11 +210,11 @@ private fun TextPage(
 
 /** Rows of a two-column table: a key or label in a box, then what it means. */
 @Composable
-private fun Table(rows: @Composable ColumnScope.() -> Unit) =
+internal fun Table(rows: @Composable ColumnScope.() -> Unit) =
     Column(Modifier.fillMaxWidth().padding(vertical = 4.dp), verticalArrangement = Arrangement.spacedBy(4.dp), content = rows)
 
 @Composable
-private fun Cell(key: String, meaning: String) {
+internal fun Cell(key: String, meaning: String) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         BasicText(
             key,
@@ -230,7 +230,7 @@ private fun Centred(text: String, style: TextStyle) =
     BasicText(text, style = style.copy(textAlign = TextAlign.Center), modifier = Modifier.fillMaxWidth())
 
 @Composable
-private fun Hint(text: String) = BasicText(text, style = Type.preview)
+internal fun Hint(text: String) = BasicText(text, style = Type.preview)
 
 @Composable
 private fun Section(text: String) = BasicText(text, style = Type.section, modifier = Modifier.padding(top = 6.dp))

@@ -116,6 +116,7 @@ private fun NoServices(app: DumbTalkApp, navigator: Navigator) {
         CenteredMessage("Connect Signal, Telegram or WhatsApp to start.")
         ListButton("Connect a service", { navigator.push(Screen.Services) }, focusRequester = requester)
         ListButton("Try the demo", { app.restartWithDemo(activity, true) }, description = "Made-up chats, to try the keys first")
+        ListButton("Restore from backup", { app.restartFor(activity, DumbTalkApp.Maintenance.RESTORE) }, description = "Moving from another phone")
     }
 }
 

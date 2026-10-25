@@ -22,6 +22,8 @@ sealed interface Screen {
     /** [firstRun]: the welcome, which leads on to Android's permission prompts. */
     data class Help(val firstRun: Boolean = false) : Screen
     data object About : Screen
+    /** Backing up or restoring, in a restart with no services running; see [DumbTalkApp.maintenance]. */
+    data class Backup(val restore: Boolean) : Screen
 }
 
 class Navigator {

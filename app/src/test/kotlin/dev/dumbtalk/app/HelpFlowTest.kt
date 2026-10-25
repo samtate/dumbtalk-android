@@ -19,10 +19,12 @@ class HelpFlowTest : KeypadTest() {
         waitFor("Pick a message")
         press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("Menu, or a message")
-        // Back returns to Keys & help; About is three rows further.
+        // Back returns to Keys & help; About is five rows further (Back up,
+        // Restore, Share debug log, Try the demo, About).
         press(KeyEvent.KEYCODE_BACK)
         waitFor("About")
-        press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER)
+        repeat(5) { press(KeyEvent.KEYCODE_DPAD_DOWN) }
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("GNU AGPL 3.0")
     }
 }

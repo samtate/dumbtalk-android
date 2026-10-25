@@ -75,6 +75,12 @@ fun SettingsScreen(app: DumbTalkApp, navigator: Navigator) {
             SettingRow("Background delivery", background.summary) { BackgroundStatus.fix(context, background) }
             if (!background.ok) BasicText("Select to fix it in Android's settings.", style = Type.small)
             SettingRow("Keys & help", "How to use DumbTalk with a keypad") { navigator.push(Screen.Help()) }
+            SettingRow("Back up", "An encrypted copy of your chats and accounts") {
+                app.restartFor(context as Activity, DumbTalkApp.Maintenance.BACKUP)
+            }
+            SettingRow("Restore from backup", "Replaces what's here with a backup") {
+                app.restartFor(context as Activity, DumbTalkApp.Maintenance.RESTORE)
+            }
             SettingRow("Share debug log", "For a bug report. It can include names and numbers, so check it first") {
                 scope.launch {
                     if (!DebugLog.share(context)) Toast.makeText(context, "No app here can share files", Toast.LENGTH_LONG).show()

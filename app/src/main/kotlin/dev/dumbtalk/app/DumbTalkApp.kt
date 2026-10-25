@@ -65,6 +65,29 @@ open class DumbTalkApp : Application() {
     /** Turns the demo on or off; the services are only built at startup, so this restarts the app. */
     fun restartWithDemo(activity: Activity, demo: Boolean) {
         prefs.edit().putBoolean(DEMO, demo).commit()
+        restart(activity)
+    }
+
+    enum class Maintenance { BACKUP, RESTORE }
+
+    /**
+     * Backing up or restoring happens in a restart where no service runs, so
+     * none of their databases is open. The marker lives in no_backup/, which
+     * backups leave out, so restoring one can't bring it back.
+     */
+    val maintenance: Maintenance? by lazy {
+        runCatching { Maintenance.valueOf(maintenanceMarker.readText()) }.getOrNull()
+    }
+    private val maintenanceMarker get() = File(noBackupFilesDir, "maintenance")
+
+    /** Restarts into [maintenance], or back to normal with null. */
+    fun restartFor(activity: Activity, maintenance: Maintenance?) {
+        if (maintenance == null) maintenanceMarker.delete() else maintenanceMarker.writeText(maintenance.name)
+        restart(activity)
+    }
+
+    /** Starts again from scratch; tests record it instead of ending their JVM. */
+    protected open fun restart(activity: Activity) {
         activity.startActivity(Intent.makeRestartActivityTask(ComponentName(this, MainActivity::class.java)))
         exitProcess(0)
     }
@@ -99,7 +122,7 @@ open class DumbTalkApp : Application() {
         if (Application.getProcessName().endsWith(":sms")) return
         Fonts.init(this, pixelFallback = usePixelFallbackFonts)
         MediaFiles.cleanOutgoing(this)
-        registry = ServiceRegistry(createServices())
+        registry = ServiceRegistry(if (maintenance == null) createServices() else emptyList())
         inbox = InboxModel(registry, scope)
 
         notifier = MessageNotifier(this)
@@ -109,7 +132,7 @@ open class DumbTalkApp : Application() {
                 runCatching { notifier.show(event.conversation, event.message) }
             }
         }
-        ConnectionService.start(this)
+        if (maintenance == null) ConnectionService.start(this)
     }
 
     private companion object {

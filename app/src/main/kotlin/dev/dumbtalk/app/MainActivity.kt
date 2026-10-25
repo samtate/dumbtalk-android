@@ -28,6 +28,7 @@ import dev.dumbtalk.app.background.BackgroundPermissions
 import dev.dumbtalk.app.background.MessageNotifier
 import dev.dumbtalk.app.background.Visibility
 import dev.dumbtalk.app.screens.AboutScreen
+import dev.dumbtalk.app.screens.BackupScreen
 import dev.dumbtalk.app.screens.ChatScreen
 import dev.dumbtalk.app.screens.HelpScreen
 import dev.dumbtalk.app.screens.ChatToolsScreen
@@ -59,9 +60,13 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as DumbTalkApp
+        val maintenance = app.maintenance
         // The welcome explains what the permission prompts are for, so they wait for it.
-        if (app.guidesUser && !app.welcomed && savedInstanceState == null) navigator.push(Screen.Help(firstRun = true))
-        else permissions.ask()
+        when {
+            maintenance != null -> navigator.replace(Screen.Backup(restore = maintenance == DumbTalkApp.Maintenance.RESTORE))
+            app.guidesUser && !app.welcomed && savedInstanceState == null -> navigator.push(Screen.Help(firstRun = true))
+            else -> permissions.ask()
+        }
         openFromNotification(intent)
         acceptSmsIntent(intent)
         setContent {
@@ -94,6 +99,7 @@ class MainActivity : ComponentActivity() {
                                         permissions.ask()
                                     }
                                     Screen.About -> AboutScreen(navigator)
+                                    is Screen.Backup -> BackupScreen(app, screen.restore)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
                                     Screen.NewNumber -> NewNumberScreen(app, navigator)
                                     Screen.NewGroup -> NewGroupScreen(app, navigator)
