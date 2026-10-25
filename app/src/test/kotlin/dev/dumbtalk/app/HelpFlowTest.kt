@@ -13,12 +13,17 @@ class HelpFlowTest : KeypadTest() {
         waitFor("Keys & help")
         // Services is focused; Keys & help is two rows down.
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("KEYS")
+        waitFor("Menu, or a message")
+        // ▶ turns the page; ◀ (the left softkey) turns it back.
+        press(KeyEvent.KEYCODE_DPAD_RIGHT)
+        waitFor("Pick a message")
+        press(KeyEvent.KEYCODE_DPAD_LEFT)
+        waitFor("Menu, or a message")
         // Back returns to Keys & help; About is three rows further.
         press(KeyEvent.KEYCODE_BACK)
         waitFor("About")
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_CENTER)
-        waitFor("GNU Affero General Public License")
+        waitFor("GNU AGPL 3.0")
     }
 }
 
@@ -26,8 +31,12 @@ class HelpFlowTest : KeypadTest() {
 class FirstRunFlowTest : KeypadTest() {
     @Test
     fun welcomeComesFirstAndContinueReachesTheInbox() {
-        waitFor("Welcome")
-        waitFor("STAYING CONNECTED")
+        waitFor("No tracking")
+        // Five pages: centre turns each one, and Start on the last.
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Menu, or a message")
+        press(KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("START")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Maya Chen")
     }

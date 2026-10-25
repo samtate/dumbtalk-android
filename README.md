@@ -42,18 +42,19 @@ also works by touch on ordinary phones.
 
 | Key | Action |
 | --- | --- |
-| D-pad | Move |
-| Centre / Enter | Open the focused item, or the action shown in the middle (Type, Send, …) |
-| Left softkey, Menu or **1** | Menu, or the selected message's actions |
-| Right softkey or Back | Back |
+| ▲ ▼ | Move |
+| Centre | Open the focused item, or the action shown in the middle (Type, Send, …) |
+| ◀ (D-pad Left) | The left softkey: Menu in the inbox, a message's actions in a chat |
+| Back / right softkey | Back |
 
-In a chat the newest message starts selected; Left opens its actions and Down reaches the message
-box. Typing uses the phone's keypad keyboard (such as TT9): while a text box has focus, **1** types
-a digit and Centre sends once there's text.
+DumberOS keeps the phone's real left softkey for its notification shade, so D-pad Left stands in
+for it wherever the screen doesn't need Left itself; the softkey bar marks it with ◀. Text boxes,
+side-by-side buttons and the photo viewer keep Left for moving.
 
-On the Qin F22 Pro, DumberOS may claim Menu for its notification panel. Use 1 or the left softkey,
-or move the panel shortcut in DumberOS settings. **Menu → Settings → Keys & help** shows all this on
-the phone.
+In a chat the newest message starts selected: Centre gives it a quick 👍, ◀ opens its actions
+(reply, react, forward, …) and Down from the newest message reaches the message box. Typing uses
+the phone's keypad keyboard (such as TT9); Centre sends once there's text, and Back leaves the
+text box. **◀ Menu → Settings → Keys & help** shows the keys on the phone.
 
 ## Linking accounts
 
@@ -82,7 +83,7 @@ Things to know:
 
 ## SMS
 
-Open **Menu → Settings → Services → SMS → Make default SMS app** and accept Android's prompts.
+Open **◀ Menu → Settings → Services → SMS → Make default SMS app** and accept Android's prompts.
 Your SMS messages stay in Android's own message store, so switching default SMS app later keeps
 them. DumbTalk supports plain text (including long and Unicode messages), notifications, search and
 sent/delivered/failed states, using the default SMS SIM. MMS and RCS aren't supported.

@@ -19,6 +19,13 @@ jobs:
       # versionCode: rises with every run, so each APK installs over the last.
       DUMBTALK_BUILD_NUMBER: ${{ github.run_number }}
     steps:
+      # The NDK, Go, the Rust build and Robolectric fill the runner's disk;
+      # these preinstalled toolchains are unused here.
+      - name: Free disk space
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/.ghcup /opt/hostedtoolcache/CodeQL /usr/local/share/boost
+          df -h /
+
       - uses: actions/checkout@v4
 
       - name: Version
