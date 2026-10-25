@@ -89,6 +89,7 @@ import kotlinx.coroutines.launch
 @Composable
 fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
     val service = app.registry.forConversation(screen.initial)
+    val offline by app.inbox.offline.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     val softkeys = LocalSoftkeys.current
     val context = LocalContext.current
@@ -573,6 +574,11 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                     if (conversation.expiration > 0) Icon(AppIcon.TIMER, size = 14.dp, color = Palette.muted, modifier = Modifier.padding(end = 5.dp))
                     ServiceIcon(conversation.serviceId, 18.dp)
                 })
+                if (conversation.serviceId in offline) BasicText(
+                    "Offline · messages send when ${conversation.serviceId.label} reconnects",
+                    style = Type.small.copy(color = Palette.error),
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 3.dp),
+                )
                 Box(Modifier.weight(1f)) {
                     val shown = model.messages
                     when {

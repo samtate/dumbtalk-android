@@ -87,6 +87,7 @@ func (c *Client) Retry(chat, id string) (string, error) {
 
 // attempt builds and sends a stored message once and records how it went.
 func (c *Client) attempt(jid types.JID, id string, build func() (*waE2E.Message, error)) {
+	c.awaitConnection(5 * time.Minute)
 	status := "sent"
 	if err := c.sendBuilt(jid, id, build); err != nil {
 		c.log.Warnf("send %s failed: %v", id, err)
@@ -116,6 +117,14 @@ func (c *Client) sendBuilt(jid types.JID, id string, build func() (*waE2E.Messag
 	defer cancel()
 	_, err = c.wa.SendMessage(ctx, jid, msg, whatsmeow.SendRequestExtra{ID: types.MessageID(id)})
 	return err
+}
+
+// awaitConnection waits (up to limit) for WhatsApp to be connected, so a
+// message written offline goes when the connection is back instead of failing.
+func (c *Client) awaitConnection(limit time.Duration) {
+	for deadline := time.Now().Add(limit); !c.IsConnected() && time.Now().Before(deadline); {
+		time.Sleep(time.Second)
+	}
 }
 
 func (c *Client) messagesChanged(chat string) {

@@ -22,12 +22,14 @@ class ServiceRegistry(val installed: List<MessagingService>) {
 
     fun forConversation(conversation: Conversation): MessagingService = byId(conversation.serviceId)
 
-    suspend fun connected(): List<MessagingService> = coroutineScope {
-        installed.map { service -> async { service to runCatching { service.status() }.getOrNull() } }
-            .awaitAll()
-            .filter { (_, status) -> status?.connected == true }
-            .map { (service, _) -> service }
+    /** Every service's status; one that doesn't answer counts as off. */
+    suspend fun statuses(): List<ServiceStatus> = coroutineScope {
+        installed.map { service ->
+            async { runCatching { service.status() }.getOrDefault(ServiceStatus(service.id, connected = false, ready = false)) }
+        }.awaitAll()
     }
+
+    suspend fun connected(): List<MessagingService> = statuses().filter { it.connected }.map { byId(it.id) }
 
     /** Asks every service to reconnect now if it's down; see [MessagingService.reconnect]. */
     suspend fun reconnectAll(networkChanged: Boolean) = coroutineScope {

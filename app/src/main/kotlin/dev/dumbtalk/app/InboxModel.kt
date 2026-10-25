@@ -20,6 +20,9 @@ class InboxModel(private val registry: ServiceRegistry, scope: CoroutineScope) {
     val active: StateFlow<ConversationPage?> = mutableActive
     val archived: StateFlow<ConversationPage?> = mutableArchived
     val connected: StateFlow<Set<ServiceId>?> = mutableConnected
+    private val mutableOffline = MutableStateFlow<Set<ServiceId>>(emptySet())
+    /** Linked but not connected right now. */
+    val offline: StateFlow<Set<ServiceId>> = mutableOffline
 
     init {
         scope.launch {
@@ -35,7 +38,9 @@ class InboxModel(private val registry: ServiceRegistry, scope: CoroutineScope) {
     }
 
     suspend fun refresh() {
-        mutableConnected.value = registry.connected().map { it.id }.toSet()
+        val statuses = registry.statuses()
+        mutableConnected.value = statuses.filter { it.connected }.map { it.id }.toSet()
+        mutableOffline.value = statuses.filter { it.connected && !it.ready }.map { it.id }.toSet()
         mutableActive.value = registry.inbox(archived = false)
         mutableArchived.value = registry.inbox(archived = true)
     }

@@ -65,6 +65,14 @@ impl Engine {
 
     /// Makes one attempt to send a stored message and records how it went.
     async fn attempt(self: &Rc<Self>, thread: &Thread, chat: &str, id: &str) {
+        // Wait (up to five minutes) for the connection, so a message written
+        // offline goes when it's back instead of failing.
+        for _ in 0..300 {
+            if self.online.get() {
+                break;
+            }
+            tokio::time::sleep(Duration::from_secs(1)).await;
+        }
         let status = match self.send_stored(thread, chat, id).await {
             Ok(()) => "sent",
             Err(error) => {
