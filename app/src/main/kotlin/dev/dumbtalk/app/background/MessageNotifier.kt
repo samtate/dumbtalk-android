@@ -75,7 +75,9 @@ class MessageNotifier(private val context: Context) {
     @Synchronized
     fun show(conversation: Conversation, message: Message) {
         if (conversation.isMuted || Visibility.suppresses(conversation.id)) return
-        if (context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+            context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+        ) return
         if (!manager.areNotificationsEnabled()) return
 
         val group = conversation.kind == ConversationKind.GROUP
@@ -113,7 +115,7 @@ class MessageNotifier(private val context: Context) {
             .setGroup(GROUP)
             .setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
             .setVisibility(Notification.VISIBILITY_PRIVATE)
-            .setPublicVersion(publicVersion(conversation.serviceId, recent.size))
+            .setPublicVersion(publicVersion(channel(conversation.serviceId), recent.size))
             .apply { if (shortcut != null) setShortcutId(shortcut) }
             .addAction(replyAction(conversation.id))
             .addAction(
@@ -187,6 +189,8 @@ class MessageNotifier(private val context: Context) {
             .setGroup(GROUP)
             .setGroupSummary(true)
             .setGroupAlertBehavior(Notification.GROUP_ALERT_CHILDREN)
+            .setVisibility(Notification.VISIBILITY_PRIVATE)
+            .setPublicVersion(publicVersion(channel, chats.size))
             .setContentIntent(PendingIntent.getActivity(context, 0, Intent(context, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE))
             .setAutoCancel(true)
             .build()
@@ -194,8 +198,8 @@ class MessageNotifier(private val context: Context) {
     }
 
     /** What the lock screen shows when notifications there are private: no names or text. */
-    private fun publicVersion(service: ServiceId, count: Int): Notification =
-        Notification.Builder(context, channel(service))
+    private fun publicVersion(channelId: String, count: Int): Notification =
+        Notification.Builder(context, channelId)
             .setSmallIcon(R.drawable.ic_notification)
             .setContentTitle("DumbTalk")
             .setContentText(if (count == 1) "New message" else "$count new messages")

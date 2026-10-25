@@ -81,6 +81,37 @@ class NotificationReplyTest {
         assertEquals(null, summary())
     }
 
+    @Test
+    @Config(sdk = [29, 31, 32])
+    fun messagesAppearBeforeAndroidIntroducedTheNotificationPermission() {
+        // POST_NOTIFICATIONS doesn't exist on these versions: no grant is needed.
+        val chat = waitFor { app.inbox.active.value?.conversations?.firstOrNull() }
+        app.notifier.show(chat, Message("legacy", chat.id, System.currentTimeMillis(), Direction.INCOMING, text = "Hello"))
+        assertEquals("Hello", notification(chat.id).extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+    }
+
+    @Test
+    fun messagesRequirePermissionOnAndroid13AndLater() {
+        shadowOf(app).denyPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val chat = waitFor { app.inbox.active.value?.conversations?.firstOrNull() }
+        app.notifier.show(chat, Message("denied", chat.id, System.currentTimeMillis(), Direction.INCOMING, text = "Hello"))
+        assertTrue(active().isEmpty())
+    }
+
+    @Test
+    fun summaryAndChatsHideNamesAndTextOnAPrivateLockScreen() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val chat = waitFor { app.inbox.active.value?.conversations?.firstOrNull() }
+        app.notifier.show(chat, Message("private", chat.id, System.currentTimeMillis(), Direction.INCOMING, text = "Secret text"))
+        for (posted in listOf(notification(chat.id), requireNotNull(summary()).notification)) {
+            assertEquals(Notification.VISIBILITY_PRIVATE, posted.visibility)
+            val public = requireNotNull(posted.publicVersion)
+            assertEquals("DumbTalk", public.extras.getCharSequence(Notification.EXTRA_TITLE).toString())
+            assertEquals("New message", public.extras.getCharSequence(Notification.EXTRA_TEXT).toString())
+            assertTrue(!public.extras.containsKey(Notification.EXTRA_TEXT_LINES))
+        }
+    }
+
     private fun active() = app.getSystemService(NotificationManager::class.java).activeNotifications.toList()
     private fun summary() = active().firstOrNull { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
 
