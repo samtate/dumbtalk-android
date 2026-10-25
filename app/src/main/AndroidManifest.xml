@@ -118,6 +118,10 @@
             android:exported="false" />
 
         <receiver
+            android:name=".background.NotificationActionReceiver"
+            android:exported="false" />
+
+        <receiver
             android:name=".background.BootReceiver"
             android:exported="true">
             <intent-filter>

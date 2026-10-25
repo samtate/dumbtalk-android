@@ -6,6 +6,8 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.app.Person
+import android.app.RemoteInput
+import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -15,12 +17,14 @@ import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.drawable.Icon
 import android.net.Uri
+import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.MainActivity
 import dev.dumbtalk.app.R
 import dev.dumbtalk.app.ui.messageSummary
 import dev.dumbtalk.core.Conversation
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Message
+import kotlinx.coroutines.launch
 
 /** What's on screen, so notifications for it can be skipped. */
 object Visibility {
@@ -84,9 +88,49 @@ class MessageNotifier(private val context: Context) {
             .setWhen(recent.last().timestamp)
             .setContentIntent(PendingIntent.getActivity(context, conversation.id.hashCode(), open, PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE))
             .setAutoCancel(true)
+            .addAction(replyAction(conversation.id))
+            .addAction(
+                Notification.Action.Builder(icon(), "Mark read", actionIntent(ACTION_READ, conversation.id, mutable = false)).build(),
+            )
             .build()
         manager.notify(conversation.id, ID, notification)
     }
+
+    /**
+     * Adds what we said (or why it wasn't sent) to a chat's notification after
+     * a reply from it; Android keeps showing a spinner until the notification
+     * is updated.
+     */
+    @Synchronized
+    fun replied(conversationId: String, text: String, failure: String?) {
+        val previous = manager.activeNotifications.firstOrNull { it.tag == conversationId }?.notification ?: return
+        val style = messagingStyle(previous) ?: return
+        val line = if (failure == null) text else "⚠ Not sent: $failure"
+        style.addMessage(Notification.MessagingStyle.Message(line, System.currentTimeMillis(), null as Person?))
+        val notification = Notification.Builder.recoverBuilder(context, previous)
+            .setStyle(style)
+            .setOnlyAlertOnce(true)
+            .build()
+        manager.notify(conversationId, ID, notification)
+    }
+
+    private fun replyAction(conversationId: String): Notification.Action =
+        Notification.Action.Builder(icon(), "Reply", actionIntent(ACTION_REPLY, conversationId, mutable = true))
+            .addRemoteInput(RemoteInput.Builder(KEY_REPLY).setLabel("Reply").build())
+            .setAllowGeneratedReplies(false)
+            .build()
+
+    /** The reply's intent must be mutable so Android can add the typed text. */
+    private fun actionIntent(action: String, conversationId: String, mutable: Boolean): PendingIntent {
+        val intent = Intent(context, NotificationActionReceiver::class.java)
+            .setAction(action)
+            .setData(Uri.Builder().scheme("dumbtalk").authority(action).appendPath(conversationId).build())
+            .putExtra(EXTRA_CONVERSATION, conversationId)
+        val flags = PendingIntent.FLAG_UPDATE_CURRENT or if (mutable) PendingIntent.FLAG_MUTABLE else PendingIntent.FLAG_IMMUTABLE
+        return PendingIntent.getBroadcast(context, 0, intent, flags)
+    }
+
+    private fun icon() = Icon.createWithResource(context, R.drawable.ic_notification)
 
     /** Opening a chat clears its notification. */
     fun clear(conversationId: String) = manager.cancel(conversationId, ID)
@@ -110,8 +154,43 @@ class MessageNotifier(private val context: Context) {
 
     companion object {
         const val EXTRA_CONVERSATION = "conversationId"
+        const val ACTION_REPLY = "reply"
+        const val ACTION_READ = "read"
+        const val KEY_REPLY = "reply"
         private const val CHANNEL = "dumbtalk-messages"
         private const val ID = 2
         private const val MESSAGE_ID = "messageId"
+    }
+}
+
+/** Reply and Mark read from a chat's notification, without opening DumbTalk. */
+class NotificationActionReceiver : BroadcastReceiver() {
+    override fun onReceive(context: Context, intent: Intent) {
+        val app = context.applicationContext as? DumbTalkApp ?: return
+        val id = intent.getStringExtra(MessageNotifier.EXTRA_CONVERSATION) ?: return
+        val text = RemoteInput.getResultsFromIntent(intent)?.getCharSequence(MessageNotifier.KEY_REPLY)?.toString()?.trim()
+        val pending = goAsync()
+        app.scope.launch {
+            try {
+                // Straight after a restart the inbox may not have this chat yet.
+                val conversation = app.inbox.find(id) ?: run { app.inbox.refresh(); app.inbox.find(id) } ?: return@launch
+                val service = app.registry.forConversation(conversation)
+                when (intent.action) {
+                    MessageNotifier.ACTION_REPLY -> {
+                        if (text.isNullOrEmpty()) return@launch
+                        // Services store the reply and return at once, then send it.
+                        val failure = runCatching { service.sendText(conversation, text) }.exceptionOrNull()
+                        app.notifier.replied(id, text, failure?.let { it.message ?: "unknown error" })
+                        if (failure == null) runCatching { service.markRead(conversation) }
+                    }
+                    MessageNotifier.ACTION_READ -> {
+                        runCatching { service.markRead(conversation) }
+                        app.notifier.clear(id)
+                    }
+                }
+            } finally {
+                pending.finish()
+            }
+        }
     }
 }
