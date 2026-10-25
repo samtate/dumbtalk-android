@@ -162,12 +162,14 @@ fn chat_from(row: &sqlx::sqlite::SqliteRow) -> ChatRow {
     }
 }
 
+/// "sending" and "failed" are our own messages in the outbox; a receipt
+/// still moves a failed one on if it got through after all.
 fn rank(status: &str) -> u8 {
     match status {
         "sent" => 2,
         "delivered" => 3,
         "read" => 4,
-        "pending" => 1,
+        "pending" | "sending" | "failed" => 1,
         _ => 0,
     }
 }
@@ -213,6 +215,11 @@ impl Db {
         if sqlx::raw_sql("ALTER TABLE chats ADD COLUMN request INTEGER NOT NULL DEFAULT 0").execute(&pool).await.is_ok() {
             sqlx::raw_sql("UPDATE chats SET request = 1").execute(&pool).await?;
         }
+        // Our messages until they're sent: the encoded DataMessage and, while
+        // its attachments aren't uploaded yet, the files to upload (JSON).
+        sqlx::raw_sql("CREATE TABLE IF NOT EXISTS outbox (chat TEXT NOT NULL, id TEXT NOT NULL, body BLOB NOT NULL, files TEXT NOT NULL DEFAULT '', voice INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,id))").execute(&pool).await?;
+        // Sends cut short (the app was killed) are failed, to retry.
+        sqlx::raw_sql("UPDATE messages SET status = 'failed' WHERE from_me = 1 AND status = 'sending'").execute(&pool).await?;
         // One-off upgrades already done, by name.
         sqlx::raw_sql("CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value INTEGER NOT NULL)").execute(&pool).await?;
         // Pins from builds that flagged the message row instead.
@@ -221,7 +228,7 @@ impl Db {
     }
 
     pub async fn clear(&self) -> Result<()> {
-        sqlx::raw_sql("DELETE FROM reactions; DELETE FROM pins; DELETE FROM polls; DELETE FROM poll_votes; DELETE FROM link_previews; DELETE FROM expiries; DELETE FROM message_attachments; DELETE FROM messages; DELETE FROM chats; DELETE FROM names;")
+        sqlx::raw_sql("DELETE FROM reactions; DELETE FROM pins; DELETE FROM polls; DELETE FROM poll_votes; DELETE FROM link_previews; DELETE FROM expiries; DELETE FROM message_attachments; DELETE FROM outbox; DELETE FROM messages; DELETE FROM chats; DELETE FROM names;")
             .execute(&self.pool)
             .await?;
         Ok(())
@@ -591,6 +598,45 @@ impl Db {
         Ok(())
     }
 
+    /// Keeps a message to send (or resend) under its id.
+    pub async fn put_outbox(&self, chat: &str, id: &str, body: &[u8], files: &str, voice: bool) -> Result<()> {
+        sqlx::query("INSERT OR REPLACE INTO outbox (chat, id, body, files, voice) VALUES (?, ?, ?, ?, ?)")
+            .bind(chat)
+            .bind(id)
+            .bind(body)
+            .bind(files)
+            .bind(voice as i64)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
+    /// The stored message to send: its encoded body, files still to upload (JSON or "") and whether it's a voice note.
+    pub async fn outbox(&self, chat: &str, id: &str) -> Result<Option<(Vec<u8>, String, bool)>> {
+        let row = sqlx::query("SELECT body, files, voice FROM outbox WHERE chat = ? AND id = ?")
+            .bind(chat)
+            .bind(id)
+            .fetch_optional(&self.pool)
+            .await?;
+        Ok(row.map(|r| (r.get("body"), r.get("files"), r.get::<i64, _>("voice") == 1)))
+    }
+
+    pub async fn delete_outbox(&self, chat: &str, id: &str) -> Result<()> {
+        sqlx::query("DELETE FROM outbox WHERE chat = ? AND id = ?").bind(chat).bind(id).execute(&self.pool).await?;
+        Ok(())
+    }
+
+    /// Records how sending our message went, unless a receipt already moved it further.
+    pub async fn settle(&self, chat: &str, id: &str, status: &str) -> Result<()> {
+        sqlx::query("UPDATE messages SET status = ? WHERE chat = ? AND id = ? AND status IN ('sending', 'failed')")
+            .bind(status)
+            .bind(chat)
+            .bind(id)
+            .execute(&self.pool)
+            .await?;
+        Ok(())
+    }
+
     /// Moves the status of our message `id` forward, in whichever chat it's in.
     /// Returns the chat when something changed.
     pub async fn advance_status(&self, id: &str, status: &str) -> Result<Option<String>> {
@@ -917,6 +963,44 @@ mod tests {
         let (active, archived) = db.chats(false).await.unwrap();
         assert!(active.is_empty());
         assert_eq!(archived, 1);
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn outbox_sends_once_and_receipts_win() {
+        let dir = std::env::temp_dir().join(format!("sigbridge-outbox-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        let _ = std::fs::remove_file(&path);
+        let status = |db: &Db, id: &'static str| {
+            let db = db.clone();
+            async move { db.message("c:abc", id).await.unwrap().unwrap().status }
+        };
+        {
+            let db = Db::open(&path).await.unwrap();
+            for id in ["1:me", "2:me", "3:me"] {
+                db.put_message(&MessageRow { status: "sending".into(), ..message(id, 1) }).await.unwrap();
+            }
+            db.put_outbox("c:abc", "1:me", b"body", "", false).await.unwrap();
+            // A receipt can beat the send call back; settling doesn't undo it.
+            db.advance_status("2:me", "delivered").await.unwrap();
+            db.settle("c:abc", "2:me", "failed").await.unwrap();
+            assert_eq!(status(&db, "2:me").await, "delivered");
+            // A send we thought failed is moved on when a receipt says it arrived.
+            db.settle("c:abc", "3:me", "failed").await.unwrap();
+            db.advance_status("3:me", "read").await.unwrap();
+            assert_eq!(status(&db, "3:me").await, "read");
+        }
+        // Reopening (the app was killed mid-send) fails what was still sending,
+        // and keeps what's needed to retry it.
+        let db = Db::open(&path).await.unwrap();
+        assert_eq!(status(&db, "1:me").await, "failed");
+        assert_eq!(db.outbox("c:abc", "1:me").await.unwrap(), Some((b"body".to_vec(), String::new(), false)));
+        db.settle("c:abc", "1:me", "sending").await.unwrap();
+        db.settle("c:abc", "1:me", "sent").await.unwrap();
+        db.delete_outbox("c:abc", "1:me").await.unwrap();
+        assert_eq!(status(&db, "1:me").await, "sent");
+        assert_eq!(db.outbox("c:abc", "1:me").await.unwrap(), None);
         std::fs::remove_dir_all(&dir).ok();
     }
 }

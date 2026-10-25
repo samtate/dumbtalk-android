@@ -149,15 +149,12 @@ impl Engine {
             profile_key: Some(self.profile_key()?),
             ..Default::default()
         };
-        self.deliver(&thread, message, ts).await?;
         let row = MessageRow {
             text: text.to_string(),
             ranges: if spans.is_empty() { String::new() } else { serde_json::to_string(&spans).unwrap_or_default() },
             ..sent_row(chat, ts, &me, "text", quoted.as_ref())
         };
-        self.db.put_message(&row).await.map_err(fail)?;
-        self.emit("chats", json!({}));
-        Ok(self.message_json(&row, &[]).await.to_string())
+        self.queue(row, message, &[], false).await
     }
 
     pub(super) async fn react(self: &Rc<Self>, chat: &str, id: &str, emoji: &str, remove: bool) -> Result<(), BridgeError> {

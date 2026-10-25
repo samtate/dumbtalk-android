@@ -3,6 +3,7 @@
 mod groups;
 mod incoming;
 mod media;
+mod outbox;
 mod outgoing;
 use outgoing::sent_row;
 mod queries;
@@ -308,6 +309,10 @@ struct Engine {
     expiring: Cell<bool>,
     /// Cuts short the wait between reconnection attempts.
     wake: tokio::sync::Notify,
+    /// Our messages waiting to be sent, in order: (chat, id).
+    outbox: RefCell<std::collections::VecDeque<(String, String)>>,
+    /// Whether the outbox is being worked through.
+    sending: Cell<bool>,
 }
 
 impl Engine {
@@ -335,6 +340,8 @@ impl Engine {
             profiles_requested: RefCell::new(HashSet::new()),
             expiring: Cell::new(false),
             wake: tokio::sync::Notify::new(),
+            outbox: RefCell::new(Default::default()),
+            sending: Cell::new(false),
         })
     }
 
@@ -408,6 +415,7 @@ impl Engine {
             Command::VotePoll { chat, id, options_json, reply } => send(reply, self.vote_poll(&chat, &id, &options_json).await.and_then(|_| ok())),
             Command::ClosePoll { chat, id, reply } => send(reply, self.close_poll(&chat, &id).await.and_then(|_| ok())),
             Command::Search { query, reply } => send(reply, self.search(&query).await),
+            Command::Retry { chat, id, reply } => send(reply, self.retry(&chat, &id).await),
             Command::SendText {
                 chat,
                 text,

@@ -175,8 +175,9 @@ impl Engine {
         self.send_files(chat, &[file], caption, "", voice_note).await
     }
 
-    /// Uploads the files, sends them in one message and stores it, keeping
-    /// our copies so they open without downloading them back.
+    /// Shows the files as one message from us at once, then uploads and
+    /// sends them in the outbox's one attempt. Our copies are kept: they open
+    /// without downloading them back, and a failed upload is retried from them.
     async fn send_files(
         self: &Rc<Self>,
         chat: &str,
@@ -187,6 +188,37 @@ impl Engine {
     ) -> Result<String, BridgeError> {
         let thread = thread_of(chat)?;
         let me = self.me()?;
+        let ts = now_ms();
+        let (quoted, quote) = self.quoting(chat, quote_id).await?;
+        let first = &files[0];
+        let row = MessageRow {
+            text: caption.into(),
+            mime: first.mime.clone(),
+            filename: std::path::Path::new(&first.path).file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default(),
+            size: std::fs::metadata(&first.path).map(|m| m.len() as i64).unwrap_or(0),
+            ..sent_row(chat, ts, &me, kind_of(&first.mime), quoted.as_ref())
+        };
+        let mut kept = Vec::new();
+        for (index, file) in files.iter().enumerate() {
+            let key = if index == 0 { row.id.clone() } else { format!("{}-{index}", row.id) };
+            let path = self.media_path(&key, &file.mime);
+            std::fs::create_dir_all(path.parent().expect("attachments dir")).map_err(fail)?;
+            std::fs::copy(&file.path, &path).map_err(fail)?;
+            kept.push(OutgoingFile { path: path.display().to_string(), ..file.clone() });
+        }
+        let message = DataMessage {
+            body: (!caption.is_empty()).then(|| caption.to_string()),
+            quote,
+            timestamp: Some(ts),
+            group_v2: Self::group_context(&thread),
+            profile_key: Some(self.profile_key()?),
+            ..Default::default()
+        };
+        self.queue(row, message, &kept, voice_note).await
+    }
+
+    /// Uploads files for a message, in order.
+    pub(super) async fn upload(&self, files: &[OutgoingFile], voice_note: bool) -> Result<Vec<AttachmentPointer>, BridgeError> {
         let mut uploads = Vec::new();
         for file in files {
             let data = std::fs::read(&file.path).map_err(fail)?;
@@ -206,52 +238,19 @@ impl Engine {
             };
             uploads.push((spec, data));
         }
-        let sizes: Vec<usize> = uploads.iter().map(|(_, data)| data.len()).collect();
-        let (quoted, quote) = self.quoting(chat, quote_id).await?;
-        let pointers: Vec<AttachmentPointer> = self
-            .manager()?
+        self.manager()?
             .upload_attachments(uploads)
             .await
             .map_err(fail)?
             .into_iter()
             .map(|p| p.map_err(|e| fail(format!("Upload failed: {e:?}"))))
-            .collect::<Result<_, _>>()?;
-        let ts = now_ms();
-        let message = DataMessage {
-            body: (!caption.is_empty()).then(|| caption.to_string()),
-            attachments: pointers.clone(),
-            quote,
-            timestamp: Some(ts),
-            group_v2: Self::group_context(&thread),
-            profile_key: Some(self.profile_key()?),
-            ..Default::default()
-        };
-        self.deliver(&thread, message, ts).await?;
-        let first = &files[0];
-        let row = MessageRow {
-            text: caption.into(),
-            mime: first.mime.clone(),
-            filename: pointers[0].file_name.clone().unwrap_or_default(),
-            size: sizes[0] as i64,
-            ..sent_row(chat, ts, &me, kind_of(&first.mime), quoted.as_ref())
-        };
-        self.db.put_message(&row).await.map_err(fail)?;
-        let encoded: Vec<Vec<u8>> = pointers.iter().map(|p| p.encode_to_vec()).collect();
-        self.db.set_attachments(chat, &row.id, &encoded).await.map_err(fail)?;
-        for (index, file) in files.iter().enumerate() {
-            let key = if index == 0 { row.id.clone() } else { format!("{}-{index}", row.id) };
-            let path = self.media_path(&key, &file.mime);
-            std::fs::create_dir_all(path.parent().expect("attachments dir")).map_err(fail)?;
-            let _ = std::fs::copy(&file.path, path);
-        }
-        self.emit("chats", json!({}));
-        Ok(self.message_json(&row, &[]).await.to_string())
+            .collect()
     }
 }
 
 /// A file to send: where it is, its type and, for pictures, its size.
-#[derive(serde::Deserialize)]
-struct OutgoingFile {
+#[derive(Clone, serde::Deserialize, serde::Serialize)]
+pub(super) struct OutgoingFile {
     path: String,
     mime: String,
     width: Option<u32>,

@@ -86,6 +86,7 @@ pub(crate) enum Command {
         query: String,
         reply: Reply,
     },
+    Retry { chat: String, id: String, reply: Reply },
     SendText {
         chat: String,
         text: String,
@@ -291,6 +292,11 @@ impl SignalClient {
 
     pub fn search_json(&self, query: String) -> Result<String, BridgeError> {
         self.call(|reply| Command::Search { query, reply })
+    }
+
+    /// Sends a failed message of ours again, with its first timestamp; returns it.
+    pub fn retry(&self, chat: String, id: String) -> Result<String, BridgeError> {
+        self.call(|reply| Command::Retry { chat, id, reply })
     }
 
     /// `spans_json`: mentions ({start, length, style: "mention", id: ACI})
