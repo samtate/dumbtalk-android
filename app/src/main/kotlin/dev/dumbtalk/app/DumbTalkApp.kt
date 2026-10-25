@@ -132,6 +132,8 @@ open class DumbTalkApp : Application() {
                 runCatching { notifier.show(event.conversation, event.message) }
             }
         }
+        // A chat read elsewhere (on the main phone, say) takes its notification with it.
+        scope.launch { inbox.active.collect { page -> page?.let { runCatching { notifier.clearRead(it.conversations) } } } }
         if (maintenance == null) ConnectionService.start(this)
     }
 

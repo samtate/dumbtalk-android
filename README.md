@@ -92,7 +92,12 @@ after all, nobody sees it twice. While a network is offline the chat says so, an
 ## Notifications, online status and receipts
 
 - Each chat's notification has **Reply** and **Mark read**, so you can answer without opening
-  DumbTalk (not yet for SMS).
+  DumbTalk. A chat read elsewhere (on your main phone, say) clears its notification.
+- Each network has its own notification channel ("Signal messages", …), so you can give them
+  different sounds or silence one in Android's settings. On Android 11+ chats appear in the
+  shade's Conversations section. The lock screen shows only "New message" unless you allow more.
+- The ongoing "Connected" notification is silent and kept apart at the bottom of the shade; it
+  names any network that's offline.
 - A one-to-one chat shows **online** or **last seen** under its name, and **Group info** shows it
   for each member, on Telegram and WhatsApp. Signal doesn't share this with anyone.
 - **◀ on your message** lists each recipient with when it was **delivered**, **read** and

@@ -79,14 +79,15 @@ class ConnectionService : Service() {
         startForeground(ID, notification("Connecting…"), ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         val app = application as DumbTalkApp
         watcher = app.scope.launch {
-            combine(app.inbox.connected, app.inbox.active) { connected: Set<ServiceId>?, page: ConversationPage? ->
-                val services = connected.orEmpty().sortedBy { it.ordinal }.joinToString(", ") { it.label }
+            combine(app.inbox.connected, app.inbox.offline, app.inbox.active) { connected: Set<ServiceId>?, offline: Set<ServiceId>, page: ConversationPage? ->
+                fun names(services: Collection<ServiceId>) = services.sortedBy { it.ordinal }.joinToString(", ") { it.label }
+                val online = names(connected.orEmpty() - offline)
                 val unread = page?.conversations.orEmpty().sumOf { it.unreadCount }
-                when {
-                    services.isEmpty() -> "No services linked"
-                    unread > 0 -> "$services · $unread unread"
-                    else -> services
-                }
+                listOfNotNull(
+                    online.ifEmpty { null },
+                    offline.takeIf { it.isNotEmpty() }?.let { "${names(it)} offline" },
+                    "$unread unread".takeIf { unread > 0 },
+                ).joinToString(" · ").ifEmpty { "No services linked" }
             }.collect { text -> manager.notify(ID, notification(text)) }
         }
         registeredAt = SystemClock.elapsedRealtime()
@@ -110,18 +111,26 @@ class ConnectionService : Service() {
         val open = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java), PendingIntent.FLAG_IMMUTABLE,
         )
+        // Its own group, so Android doesn't bundle it with messages; the
+        // channel is the lowest importance, so it's silent and at the bottom.
         return Notification.Builder(this, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
-            .setContentTitle("DumbTalk")
+            .setContentTitle("Connected")
             .setContentText(text)
             .setContentIntent(open)
             .setOngoing(true)
             .setShowWhen(false)
+            .setCategory(Notification.CATEGORY_SERVICE)
+            .setGroup(GROUP)
+            .setSortKey("z")
+            .setVisibility(Notification.VISIBILITY_SECRET)
+            .setOnlyAlertOnce(true)
             .build()
     }
 
     companion object {
         private const val CHANNEL = "dumbtalk-connection"
+        private const val GROUP = "dev.dumbtalk.connection"
         private const val SETTLE_MILLIS = 2_000L
         private const val ID = 1
 

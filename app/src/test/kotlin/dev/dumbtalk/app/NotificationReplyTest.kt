@@ -56,8 +56,36 @@ class NotificationReplyTest {
         assertTrue(texts.containsAll(listOf("Lunch?", "On my way")))
     }
 
+    @Test
+    fun chatsAreGroupedOnTheirNetworksChannelAndClearWhenReadElsewhere() {
+        shadowOf(app).grantPermissions(Manifest.permission.POST_NOTIFICATIONS)
+        val chats = waitFor { app.inbox.active.value?.conversations?.takeIf { it.size >= 2 } }
+        val (first, second) = chats
+        val now = System.currentTimeMillis()
+        app.notifier.show(first, Message("a", first.id, now, Direction.INCOMING, sender = "Ann", text = "Hi"))
+        app.notifier.show(second, Message("b", second.id, now, Direction.INCOMING, sender = "Bob", text = "Yo"))
+
+        val posted = notification(first.id)
+        assertEquals(MessageNotifier.channel(first.serviceId), posted.channelId)
+        assertEquals("dev.dumbtalk.messages", posted.group)
+        assertTrue(summary() != null)
+
+        // Read on the main phone: nothing unread and nothing newer than the notification.
+        app.notifier.clearRead(listOf(first.copy(unreadCount = 0, lastMessage = Message("a", first.id, now, Direction.INCOMING))))
+        assertTrue(active().none { it.tag == first.id })
+        // A newer message than the notification (or anything unread) keeps it.
+        app.notifier.clearRead(listOf(second.copy(unreadCount = 1, lastMessage = Message("b", second.id, now, Direction.INCOMING))))
+        assertTrue(active().any { it.tag == second.id })
+        // The summary goes with the last chat.
+        app.notifier.clear(second.id)
+        assertEquals(null, summary())
+    }
+
+    private fun active() = app.getSystemService(NotificationManager::class.java).activeNotifications.toList()
+    private fun summary() = active().firstOrNull { it.notification.flags and Notification.FLAG_GROUP_SUMMARY != 0 }
+
     private fun notification(tag: String): Notification =
-        app.getSystemService(NotificationManager::class.java).activeNotifications.single { it.tag == tag }.notification
+        active().single { it.tag == tag && it.notification.flags and Notification.FLAG_GROUP_SUMMARY == 0 }.notification
 
     /** Runs the main looper (the receiver finishes there) until [value] isn't null. */
     private fun <T : Any> waitFor(value: () -> T?): T {
