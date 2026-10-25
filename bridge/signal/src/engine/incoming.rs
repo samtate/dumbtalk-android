@@ -93,8 +93,8 @@ impl Engine {
                         .await
                         .map_err(fail)?
                     {
-                        self.db.set_flag(&chat, "unread", 0).await.map_err(fail)?;
-                        self.db.start_expiries(&chat, now_ms() as i64).await.map_err(fail)?;
+                        self.db.read_through(&chat, ts as i64).await.map_err(fail)?;
+                        self.db.start_expiries(&chat, ts as i64, now_ms() as i64).await.map_err(fail)?;
                         self.emit("chats", json!({}));
                     }
                 }

@@ -88,7 +88,8 @@ interface NativeBridge {
     fun react(chat: String, id: String, emoji: String, remove: Boolean)
     fun edit(chat: String, id: String, text: String)
     fun delete(chat: String, id: String)
-    fun markRead(chat: String)
+    /** Reads the chat up to message [upTo], or all of it when it's "". */
+    fun markRead(chat: String, upTo: String)
     fun setTyping(chat: String, active: Boolean)
     fun openChat(chat: String) {}
     fun closeChat() {}
@@ -279,9 +280,9 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
     override suspend fun closePoll(conversation: Conversation, message: Message) =
         changeMessages(conversation) { closePoll(conversation.remoteId, message.id) }
 
-    override suspend fun markRead(conversation: Conversation) {
+    override suspend fun markRead(conversation: Conversation, upTo: Message?) {
         if (conversation.unreadCount == 0 && conversation.lastMessage?.direction != Direction.INCOMING) return
-        bridge { markRead(conversation.remoteId) }
+        bridge { markRead(conversation.remoteId, upTo?.id.orEmpty()) }
         emit(ServiceEvent.ConversationsChanged(id))
     }
 

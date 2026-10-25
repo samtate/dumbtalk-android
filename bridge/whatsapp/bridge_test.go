@@ -334,3 +334,44 @@ func TestReceiptsPerRecipient(t *testing.T) {
 		t.Fatalf("receipts = %+v, want %+v", got, want)
 	}
 }
+
+func TestReadingUpToAMessage(t *testing.T) {
+	s, err := openStore(filepath.Join(t.TempDir(), "m.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	chat := "441234@s.whatsapp.net"
+	for i, id := range []string{"A", "B", "C", "D"} {
+		s.putMessage(row{Chat: chat, ID: id, Sender: chat, Ts: int64(100 * (i + 1)), Kind: "text", Text: id})
+	}
+	s.updateChat(chat, "unread", 4)
+	ids := func(rows []row) (out []string) {
+		for _, r := range rows {
+			out = append(out, r.ID)
+		}
+		return
+	}
+	// Reading through B reads A and B, leaving two unread…
+	if got := ids(must(s.unreadThrough(chat, 200, 100))); len(got) != 2 || got[0] != "B" || got[1] != "A" {
+		t.Fatalf("to read through B = %v", got)
+	}
+	s.readThrough(chat, 200)
+	if c, _ := s.chat(chat); c.Unread != 2 {
+		t.Fatalf("unread = %d, want 2", c.Unread)
+	}
+	// …and reading on through D reads only what's new.
+	if got := ids(must(s.unreadThrough(chat, 400, 100))); len(got) != 2 || got[0] != "D" || got[1] != "C" {
+		t.Fatalf("to read through D = %v", got)
+	}
+	s.readThrough(chat, 400)
+	if c, _ := s.chat(chat); c.Unread != 0 {
+		t.Fatalf("unread = %d, want 0", c.Unread)
+	}
+}
+
+func must[T any](value T, err error) T {
+	if err != nil {
+		panic(err)
+	}
+	return value
+}

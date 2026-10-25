@@ -141,7 +141,7 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = client.react(chat, id, if (remove) "" else emoji)
     override fun edit(chat: String, id: String, text: String) = client.edit(chat, id, text)
     override fun delete(chat: String, id: String) = client.revoke(chat, id)
-    override fun markRead(chat: String) = client.markRead(chat)
+    override fun markRead(chat: String, upTo: String) = client.markRead(chat, upTo)
     override fun setTyping(chat: String, active: Boolean) = client.setTyping(chat, active)
     override fun openChat(chat: String) = client.openChat(chat)
     override fun closeChat() = client.closeChat()

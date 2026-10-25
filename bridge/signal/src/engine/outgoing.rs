@@ -216,8 +216,15 @@ impl Engine {
     }
 
     /// Sends read receipts to each author of recent incoming messages.
-    pub(super) async fn mark_read(self: &Rc<Self>, chat: &str) -> Result<(), BridgeError> {
-        let rows = self.db.recent_incoming(chat, 20).await.map_err(fail)?;
+    /// Reads the chat up to and including message `up_to`, or all of it when
+    /// it's "", sending read receipts for what that newly reads.
+    pub(super) async fn mark_read(self: &Rc<Self>, chat: &str, up_to: &str) -> Result<(), BridgeError> {
+        let through = if up_to.is_empty() {
+            i64::MAX
+        } else {
+            self.db.message(chat, up_to).await.map_err(fail)?.ok_or_else(|| fail("Message not found"))?.ts
+        };
+        let rows = self.db.unread_through(chat, through, 100).await.map_err(fail)?;
         let mut by_author: HashMap<String, Vec<u64>> = HashMap::new();
         for row in rows {
             by_author.entry(row.sender).or_default().push(row.ts as u64);
@@ -230,9 +237,9 @@ impl Engine {
                 self.log(format!("read receipt failed: {error}"));
             }
         }
-        self.db.set_flag(chat, "unread", 0).await.map_err(fail)?;
+        self.db.read_through(chat, through).await.map_err(fail)?;
         // Incoming disappearing messages count down from being read.
-        self.db.start_expiries(chat, now_ms() as i64).await.map_err(fail)?;
+        self.db.start_expiries(chat, through, now_ms() as i64).await.map_err(fail)?;
         self.emit("chats", json!({}));
         Ok(())
     }

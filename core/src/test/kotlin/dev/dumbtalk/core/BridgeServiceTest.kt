@@ -63,7 +63,7 @@ private class FakeBridge : NativeBridge {
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = call("react:$id:$emoji:$remove")
     override fun edit(chat: String, id: String, text: String) = call("edit:$id")
     override fun delete(chat: String, id: String) = call("delete:$id")
-    override fun markRead(chat: String) = call("read:$chat")
+    override fun markRead(chat: String, upTo: String) = call("read:$chat:$upTo")
     override fun setTyping(chat: String, active: Boolean) = call("typing:$active")
     override fun setArchived(chat: String, value: Boolean) = call("archive:$value")
     override fun setPinned(chat: String, value: Boolean) = call("pin:$value")

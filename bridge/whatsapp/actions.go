@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"strings"
 	"time"
 
@@ -263,13 +264,22 @@ func (c *Client) Revoke(chat, id string) error {
 	return c.store.deleteMessage(jid.String(), id)
 }
 
-// MarkRead sends read receipts for the latest incoming messages in a chat.
-func (c *Client) MarkRead(chat string) error {
+// MarkRead reads the chat up to and including message upTo, or all of
+// it when upTo is "", sending read receipts for what that newly reads.
+func (c *Client) MarkRead(chat, upTo string) error {
 	jid, err := parseChat(chat)
 	if err != nil {
 		return err
 	}
-	rows, err := c.store.unreadIncoming(jid.String(), 20)
+	through := int64(math.MaxInt64)
+	if upTo != "" {
+		target, err := c.store.message(jid.String(), upTo)
+		if err != nil || target == nil {
+			return errors.New("message not found")
+		}
+		through = target.Ts
+	}
+	rows, err := c.store.unreadThrough(jid.String(), through, 100)
 	if err != nil {
 		return err
 	}
@@ -288,7 +298,11 @@ func (c *Client) MarkRead(chat string) error {
 			c.log.Warnf("mark read: %v", err)
 		}
 	}
-	return c.store.updateChat(jid.String(), "unread", 0)
+	if err := c.store.readThrough(jid.String(), through); err != nil {
+		return err
+	}
+	emit(c.listener, "chats", nil)
+	return nil
 }
 
 // SetTyping shows or hides our typing indicator.

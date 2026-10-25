@@ -341,8 +341,8 @@ func (c *Client) ingest(chat types.JID, info types.MessageInfo, msg, raw *waE2E.
 func (c *Client) onReceipt(evt *events.Receipt) {
 	chat := c.canonical(evt.Chat).String()
 	if evt.Type == types.ReceiptTypeReadSelf || (evt.IsFromMe && evt.Type == types.ReceiptTypeRead) {
-		// We read this chat on another device.
-		c.store.updateChat(chat, "unread", 0)
+		// We read this chat on another device, up to when this says.
+		c.store.readThrough(chat, evt.Timestamp.UnixMilli())
 		emit(c.listener, "chats", nil)
 		return
 	}

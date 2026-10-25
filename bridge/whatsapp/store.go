@@ -96,6 +96,8 @@ func openStore(path string) (*msgStore, error) {
 		`ALTER TABLE chats ADD COLUMN expire_timer INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chats ADD COLUMN blocked INTEGER NOT NULL DEFAULT 0`,
 		`ALTER TABLE chats ADD COLUMN admin INTEGER NOT NULL DEFAULT 0`,
+		// How far the chat has been read here (ms), so read receipts go once.
+		`ALTER TABLE chats ADD COLUMN read_through INTEGER NOT NULL DEFAULT 0`,
 	} {
 		_, _ = db.Exec(column)
 	}
@@ -558,13 +560,23 @@ func (s *msgStore) raw(chat, id string) ([]byte, error) {
 	return raw, err
 }
 
-func (s *msgStore) unreadIncoming(chat string, limit int) ([]row, error) {
+// unreadThrough lists incoming messages after where the chat was read up
+// to, through ts, newest first: the ones reading through ts reads.
+func (s *msgStore) unreadThrough(chat string, ts int64, limit int) ([]row, error) {
 	rows, err := s.db.Query(`SELECT `+messageColumns+` FROM messages WHERE chat = ? AND from_me = 0 AND kind != 'system'
-		ORDER BY ts DESC LIMIT ?`, chat, limit)
+		AND ts > (SELECT read_through FROM chats WHERE jid = ?) AND ts <= ? ORDER BY ts DESC LIMIT ?`, chat, chat, ts, limit)
 	if err != nil {
 		return nil, err
 	}
 	return scanRows(rows)
+}
+
+// readThrough marks the chat read up to ts: what's left unread is at most
+// the incoming messages after it.
+func (s *msgStore) readThrough(chat string, ts int64) error {
+	_, err := s.db.Exec(`UPDATE chats SET read_through = MAX(read_through, ?), unread = MIN(unread,
+		(SELECT COUNT(*) FROM messages WHERE chat = ? AND from_me = 0 AND kind != 'system' AND ts > ?)) WHERE jid = ?`, ts, chat, ts, chat)
+	return err
 }
 
 func (s *msgStore) search(query string, limit int) ([]row, error) {

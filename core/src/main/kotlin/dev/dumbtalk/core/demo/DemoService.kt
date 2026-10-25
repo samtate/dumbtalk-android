@@ -161,8 +161,9 @@ class DemoService(
         )
     }
 
-    override suspend fun markRead(conversation: Conversation) {
-        update(conversation.id) { it.copy(unreadCount = 0) }
+    override suspend fun markRead(conversation: Conversation, upTo: Message?) {
+        val left = upTo?.let { read -> messages[conversation.id].orEmpty().count { it.direction == Direction.INCOMING && it.sentAt > read.sentAt } } ?: 0
+        update(conversation.id) { it.copy(unreadCount = minOf(it.unreadCount, left)) }
     }
 
     override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message {

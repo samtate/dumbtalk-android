@@ -456,8 +456,8 @@ impl Engine {
             Command::Delete { chat, id, reply } => {
                 send(reply, self.delete(&chat, &id).await.and_then(|_| ok()))
             }
-            Command::MarkRead { chat, reply } => {
-                send(reply, self.mark_read(&chat).await.and_then(|_| ok()))
+            Command::MarkRead { chat, up_to, reply } => {
+                send(reply, self.mark_read(&chat, &up_to).await.and_then(|_| ok()))
             }
             Command::SetTyping {
                 chat,

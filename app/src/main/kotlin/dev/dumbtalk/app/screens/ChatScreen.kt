@@ -596,7 +596,10 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                         shown.isEmpty() -> CenteredMessage("No messages yet.")
                         else -> MessageList(
                             conversation, shown, model.hasMore, listState, lastMessageId, messageFocus,
-                            onSelect = { selectedId = it.id; lastMessageId = it.id; composeControl = null; bottomRequested = false },
+                            onSelect = {
+                                selectedId = it.id; lastMessageId = it.id; composeControl = null; bottomRequested = false
+                                model.reached(it)
+                            },
                             onOpen = { actionMessageId = it.id },
                             onLoadOlder = {
                                 scope.launch {

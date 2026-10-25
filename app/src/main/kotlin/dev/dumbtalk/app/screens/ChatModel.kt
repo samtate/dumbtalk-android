@@ -18,6 +18,8 @@ import dev.dumbtalk.core.TextSpan
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 
@@ -91,26 +93,40 @@ class ChatModel(
                     if (earlier.isEmpty()) hasMore = page.hasMore
                 }
                 loadError = null
-                if (viewingNewest) markSeen()
+                if (viewingNewest) readNewest()
             }
             .onFailure { if (it is CancellationException) throw it; loadError = it.message ?: "Could not load messages" }
         newestOlderMessage
     }
 
-    /** Whether the newest message is on screen; only then are messages marked read. */
+    /** Whether the newest message is on screen: everything up to it counts as read. */
     var viewingNewest = false
         set(value) {
             field = value
-            if (value) launch { markSeen() }
+            if (value) readNewest()
         }
-    /** The newest incoming message already marked read, so reaching the bottom again sends nothing. */
-    private var seenId: String? = null
 
-    private suspend fun markSeen() {
-        val newest = messages.orEmpty().lastOrNull { it.direction == Direction.INCOMING } ?: return
-        if (newest.id == seenId) return
-        seenId = newest.id
-        runCatching { service.markRead(conversation()) }
+    private fun readNewest() {
+        messages.orEmpty().lastOrNull { it.direction == Direction.INCOMING }?.let(::reached)
+    }
+
+    /** When the newest incoming message read so far was sent. */
+    private var readThrough = 0L
+    private var reading: Job? = null
+
+    /**
+     * The cursor is on [message]: an incoming one newer than what's been read
+     * reads the chat up to it. A short wait lets a quick scroll send one batch
+     * of read receipts rather than one per message.
+     */
+    fun reached(message: Message) {
+        if (message.direction != Direction.INCOMING || message.sentAt <= readThrough) return
+        readThrough = message.sentAt
+        reading?.cancel()
+        reading = scope.launch {
+            delay(READ_SETTLE_MILLIS)
+            runCatching { service.markRead(conversation(), message) }.onFailure { Log.w("Chat", "mark read failed", it) }
+        }
     }
 
     /**
@@ -447,5 +463,9 @@ class ChatModel(
     /** Fire-and-forget service calls; their results arrive as events. */
     private fun launch(block: suspend () -> Unit) {
         scope.launch { runCatching { block() }.onFailure { Log.w("Chat", "action failed", it) } }
+    }
+
+    private companion object {
+        const val READ_SETTLE_MILLIS = 600L
     }
 }

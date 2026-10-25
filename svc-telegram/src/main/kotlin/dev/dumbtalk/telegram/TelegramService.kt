@@ -585,11 +585,12 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         client?.post(TdApi.CloseChat(chatId(conversation)))
     }
 
-    override suspend fun markRead(conversation: Conversation) {
+    /** Telegram keeps how far a chat is read; viewing a message moves it there. */
+    override suspend fun markRead(conversation: Conversation, upTo: Message?) {
         val chat = requireChat(conversation)
-        val last = chat.lastMessage?.id ?: return
+        val through = upTo?.id?.toLongOrNull() ?: chat.lastMessage?.id ?: return
         if (chat.unreadCount == 0) return
-        requireClient().send(TdApi.ViewMessages(chat.id, longArrayOf(last), null, true))
+        requireClient().send(TdApi.ViewMessages(chat.id, longArrayOf(through), null, true))
     }
 
     override suspend fun sendText(conversation: Conversation, text: String, replyTo: Message?): Message =

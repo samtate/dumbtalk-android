@@ -123,6 +123,7 @@ pub(crate) enum Command {
     },
     MarkRead {
         chat: String,
+        up_to: String,
         reply: Reply,
     },
     SetTyping {
@@ -391,8 +392,9 @@ impl SignalClient {
         self.unit(|reply| Command::Delete { chat, id, reply })
     }
 
-    pub fn mark_read(&self, chat: String) -> Result<(), BridgeError> {
-        self.unit(|reply| Command::MarkRead { chat, reply })
+    /// Reads the chat up to message `up_to`, or all of it when it's "".
+    pub fn mark_read(&self, chat: String, up_to: String) -> Result<(), BridgeError> {
+        self.unit(|reply| Command::MarkRead { chat, up_to, reply })
     }
 
     pub fn set_typing(&self, chat: String, active: bool) -> Result<(), BridgeError> {

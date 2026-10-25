@@ -341,7 +341,8 @@ interface MessagingService {
     suspend fun personAvatar(personId: String): String? = null
     /** Newest page when [before] is null, else the page older than [before]. */
     suspend fun listMessages(conversation: Conversation, before: Message? = null): MessagePage
-    suspend fun markRead(conversation: Conversation)
+    /** Reads the chat up to and including [upTo] (sending read receipts for those), or all of it when null. */
+    suspend fun markRead(conversation: Conversation, upTo: Message? = null)
 
     /** Called while a chat is on screen; networks use it for live updates and read state. */
     suspend fun openConversation(conversation: Conversation) {}

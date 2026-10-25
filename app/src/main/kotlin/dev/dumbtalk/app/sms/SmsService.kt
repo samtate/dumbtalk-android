@@ -133,10 +133,11 @@ class SmsService(private val context: Context, private val managerForSubscriptio
     }
     override suspend fun openConversation(conversation: Conversation) { visibleThread = thread(conversation) }
     override suspend fun closeConversation(conversation: Conversation) { visibleThread = null }
-    override suspend fun markRead(conversation: Conversation) = withContext(Dispatchers.IO) {
+    override suspend fun markRead(conversation: Conversation, upTo: Message?) = withContext(Dispatchers.IO) {
         checkEnabled()
-        resolver.update(Telephony.Sms.CONTENT_URI, ContentValues().apply { put("read", 1); put("seen", 1) }, "thread_id=? AND read=0", arrayOf(conversation.remoteId))
-        MessageNotifier(context).clear(conversation.id)
+        val through = (upTo?.sentAt ?: Long.MAX_VALUE).toString()
+        resolver.update(Telephony.Sms.CONTENT_URI, ContentValues().apply { put("read", 1); put("seen", 1) }, "thread_id=? AND read=0 AND date<=?", arrayOf(conversation.remoteId, through))
+        if (upTo == null) MessageNotifier(context).clear(conversation.id)
         Unit
     }
     override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) = withContext(Dispatchers.IO) {

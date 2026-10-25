@@ -218,6 +218,8 @@ impl Db {
         // Our messages until they're sent: the encoded DataMessage and, while
         // its attachments aren't uploaded yet, the files to upload (JSON).
         sqlx::raw_sql("CREATE TABLE IF NOT EXISTS outbox (chat TEXT NOT NULL, id TEXT NOT NULL, body BLOB NOT NULL, files TEXT NOT NULL DEFAULT '', voice INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,id))").execute(&pool).await?;
+        // How far each chat has been read here (ms), so read receipts go once.
+        let _ = sqlx::raw_sql("ALTER TABLE chats ADD COLUMN read_through INTEGER NOT NULL DEFAULT 0").execute(&pool).await;
         // When each recipient got, read or played (viewed) a message of ours, in ms.
         sqlx::raw_sql("CREATE TABLE IF NOT EXISTS receipts (chat TEXT NOT NULL, msg TEXT NOT NULL, reader TEXT NOT NULL, delivered_at INTEGER NOT NULL DEFAULT 0, read_at INTEGER NOT NULL DEFAULT 0, played_at INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(chat,msg,reader))").execute(&pool).await?;
         // Sends cut short (the app was killed) are failed, to retry.
@@ -357,10 +359,10 @@ impl Db {
         Ok(seconds != current)
     }
 
-    /// Starts the countdown on the chat's incoming messages, once read.
-    pub async fn start_expiries(&self, chat: &str, now: i64) -> Result<()> {
-        sqlx::query("UPDATE expiries SET started = ? WHERE chat = ? AND started = 0")
-            .bind(now).bind(chat).execute(&self.pool).await?;
+    /// Starts the countdown on the chat's incoming messages read so far (up to `through`, ms).
+    pub async fn start_expiries(&self, chat: &str, through: i64, now: i64) -> Result<()> {
+        sqlx::query("UPDATE expiries SET started = ? WHERE chat = ? AND started = 0 AND msg IN (SELECT id FROM messages WHERE chat = ? AND ts <= ?)")
+            .bind(now).bind(chat).bind(chat).bind(through).execute(&self.pool).await?;
         Ok(())
     }
 
@@ -627,6 +629,22 @@ impl Db {
         Ok(rows.iter().map(|r| (r.get("reader"), r.get("delivered_at"), r.get("read_at"), r.get("played_at"))).collect())
     }
 
+    /// Marks the chat read up to `ts`: what's left unread is at most the
+    /// incoming messages after it.
+    pub async fn read_through(&self, chat: &str, ts: i64) -> Result<()> {
+        sqlx::query(
+            "UPDATE chats SET read_through = MAX(read_through, ?), unread = MIN(unread,
+             (SELECT COUNT(*) FROM messages WHERE chat = ? AND from_me = 0 AND kind != 'system' AND ts > ?)) WHERE id = ?",
+        )
+        .bind(ts)
+        .bind(chat)
+        .bind(ts)
+        .bind(chat)
+        .execute(&self.pool)
+        .await?;
+        Ok(())
+    }
+
     /// Keeps a message to send (or resend) under its id.
     pub async fn put_outbox(&self, chat: &str, id: &str, body: &[u8], files: &str, voice: bool) -> Result<()> {
         sqlx::query("INSERT OR REPLACE INTO outbox (chat, id, body, files, voice) VALUES (?, ?, ?, ?, ?)")
@@ -839,14 +857,19 @@ impl Db {
         Ok(list)
     }
 
-    pub async fn recent_incoming(&self, chat: &str, limit: i64) -> Result<Vec<MessageRow>> {
+    /// Incoming messages after where the chat was read up to, through `ts`,
+    /// newest first: the ones reading through `ts` reads.
+    pub async fn unread_through(&self, chat: &str, ts: i64, limit: i64) -> Result<Vec<MessageRow>> {
         let rows = sqlx::query(concat!(
             "SELECT ",
             columns!(),
             " FROM messages WHERE chat = ? AND from_me = 0 AND kind != 'system'
+             AND ts > COALESCE((SELECT read_through FROM chats WHERE id = ?), 0) AND ts <= ?
              ORDER BY ts DESC LIMIT ?"
         ))
         .bind(chat)
+        .bind(chat)
+        .bind(ts)
         .bind(limit)
         .fetch_all(&self.pool)
         .await?;
@@ -982,7 +1005,7 @@ mod tests {
         assert_eq!(db.purge_expired(61_000).await.unwrap(), ["c:abc"]);
         assert!(db.message("c:abc", "400:me").await.unwrap().is_none());
         assert!(db.message("c:abc", "401:them").await.unwrap().is_some());
-        db.start_expiries("c:abc", 70_000).await.unwrap();
+        db.start_expiries("c:abc", i64::MAX, 70_000).await.unwrap();
         assert!(db.purge_expired(129_000).await.unwrap().is_empty());
         db.purge_expired(130_000).await.unwrap();
         assert!(db.message("c:abc", "401:them").await.unwrap().is_none());
@@ -1048,6 +1071,27 @@ mod tests {
             db.receipts("g:1", "5:me").await.unwrap(),
             vec![("ann".to_string(), 100, 200, 0), ("bob".to_string(), 150, 0, 0)],
         );
+        std::fs::remove_dir_all(&dir).ok();
+    }
+
+    #[tokio::test]
+    async fn reading_up_to_a_message_reads_only_that_far() {
+        let dir = std::env::temp_dir().join(format!("sigbridge-read-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("t.db");
+        let _ = std::fs::remove_file(&path);
+        let db = Db::open(&path).await.unwrap();
+        for (i, id) in ["1:ann", "2:ann", "3:ann", "4:ann"].iter().enumerate() {
+            db.put_message(&MessageRow { from_me: false, sender: "ann".into(), ..message(id, (i as i64 + 1) * 100) }).await.unwrap();
+        }
+        db.set_flag("c:abc", "unread", 4).await.unwrap();
+        let ids = |rows: Vec<MessageRow>| rows.into_iter().map(|r| r.id).collect::<Vec<_>>();
+        assert_eq!(ids(db.unread_through("c:abc", 200, 100).await.unwrap()), ["2:ann", "1:ann"]);
+        db.read_through("c:abc", 200).await.unwrap();
+        // Only what's new is read next time, and two are left unread.
+        assert_eq!(ids(db.unread_through("c:abc", 400, 100).await.unwrap()), ["4:ann", "3:ann"]);
+        let unread: i64 = sqlx::query_scalar("SELECT unread FROM chats WHERE id = 'c:abc'").fetch_one(&db.pool).await.unwrap();
+        assert_eq!(unread, 2);
         std::fs::remove_dir_all(&dir).ok();
     }
 }
