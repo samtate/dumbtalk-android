@@ -16,8 +16,10 @@ class WhenTest {
 
     @Test
     fun timesSayTheDayOnlyWhenItIsNotToday() {
-        assertEquals(false, formatWhen(at(25, 9), now, zone).contains(" "))
-        assertEquals(true, formatWhen(at(24, 9), now, zone).startsWith("yesterday "))
+        // Locale-free: today is just the time, the same time yesterday says so first.
+        val yesterday = formatWhen(at(24, 9), now, zone)
+        assertEquals(true, yesterday.startsWith("yesterday "))
+        assertEquals(yesterday.removePrefix("yesterday "), formatWhen(at(25, 9), now, zone))
         assertEquals(true, formatWhen(at(21, 9), now, zone).startsWith("Wed "))
         assertEquals(true, formatWhen(at(2, 9), now, zone).startsWith("2 Oct "))
     }
