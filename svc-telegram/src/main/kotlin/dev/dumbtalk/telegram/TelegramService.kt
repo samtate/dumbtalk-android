@@ -1,5 +1,6 @@
 package dev.dumbtalk.telegram
 
+import android.util.Log
 import android.util.LruCache
 import dev.dumbtalk.core.Attachment
 import dev.dumbtalk.core.Capabilities
@@ -36,6 +37,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withPermit
 import kotlinx.coroutines.withTimeout
+import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 
 /**
@@ -62,6 +64,9 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
 
     @Volatile private var client: TdClient? = null
     private val authState = MutableStateFlow<TdApi.AuthorizationState?>(null)
+    /** TDLib's link to Telegram's servers, separate from being signed in. */
+    @Volatile private var connection: TdApi.ConnectionState? = null
+    @Volatile private var foreground = false
     /** Set when TDLib rejects our parameters (e.g. bad API credentials). */
     private val parametersError = MutableStateFlow<Throwable?>(null)
     @Volatile private var me: TdApi.User? = null
@@ -146,6 +151,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     private fun onUpdate(update: TdApi.Object) {
         when (update) {
             is TdApi.UpdateAuthorizationState -> onAuthorizationState(update.authorizationState)
+            is TdApi.UpdateConnectionState -> onConnectionState(update.state)
             is TdApi.UpdateUser -> users[update.user.id] = update.user
             is TdApi.UpdateBasicGroup -> basicGroups[update.basicGroup.id] = update.basicGroup
             is TdApi.UpdateSupergroup -> supergroups[update.supergroup.id] = update.supergroup
@@ -196,12 +202,14 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         when (state) {
             is TdApi.AuthorizationStateWaitTdlibParameters -> client?.let(::sendParameters)
             is TdApi.AuthorizationStateReady -> scope.launch {
+                client?.let { postOnline(it) }
                 me = runCatching { requireClient().send(TdApi.GetMe()) }.getOrNull()
                 loadChatLists()
                 mutableEvents.emit(ServiceEvent.StatusChanged(id))
             }
             is TdApi.AuthorizationStateClosed -> {
                 client = null
+                connection = null
                 me = null
                 chatListsLoaded = null
                 chats.clear()
@@ -214,6 +222,13 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             }
         }
         authState.value = state
+    }
+
+    private fun onConnectionState(state: TdApi.ConnectionState) {
+        val wasUp = isUp(connection)
+        connection = state
+        Log.i(TAG, "connection ${state.javaClass.simpleName.removePrefix("ConnectionState")}")
+        if (isUp(state) != wasUp) mutableEvents.tryEmit(ServiceEvent.StatusChanged(id))
     }
 
     private fun onChatAction(update: TdApi.UpdateChatAction) {
@@ -271,7 +286,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     override suspend fun status() = ServiceStatus(
         id,
         connected = authState.value is TdApi.AuthorizationStateReady,
-        ready = client != null,
+        ready = isUp(connection),
         accountLabel = me?.let { user -> mapper.userName(user) + (user.phoneNumber.takeIf { it.isNotBlank() }?.let { " · +$it" } ?: "") },
     )
 
@@ -300,7 +315,8 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         if (credentials() == null) {
             return SetupStep.Input(
                 "api-id", "Telegram API ID",
-                "This build has no Telegram app credentials. Create an app at my.telegram.org and enter its API ID.",
+                "Telegram needs app credentials of your own. On a computer, sign in at my.telegram.org, open " +
+                    "API development tools and create an app (any name). Enter its App api_id here.",
                 SetupStep.Input.Field.API_ID, placeholder = "12345678",
             )
         }
@@ -444,7 +460,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         val (kind, raw) = personId.split(':', limit = 2).takeIf { it.size == 2 } ?: return null
         val id = raw.toLongOrNull() ?: return null
         val photo = when (kind) {
-            "user" -> (users[id] ?: runCatching { requireClient().send(TdApi.GetUser(id)) }.getOrNull()?.also { users[id] = it })?.profilePhoto?.small
+            "user" -> user(id)?.profilePhoto?.small
             "chat" -> chats[id]?.let { synchronized(it) { it.photo?.small } }
             else -> null
         } ?: return null
@@ -498,9 +514,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
                         for (entry in page.reactions) {
                             val emoji = (entry.type as? TdApi.ReactionTypeEmoji)?.emoji ?: continue
                             val sender = entry.senderId
-                            if (sender is TdApi.MessageSenderUser && !users.containsKey(sender.userId)) {
-                                runCatching { requireClient().send(TdApi.GetUser(sender.userId)) }.getOrNull()?.let { users[it.id] = it }
-                            }
+                            if (sender is TdApi.MessageSenderUser) user(sender.userId) // so the mapper can name them
                             all.add(mapper.reactor(emoji, sender, entry.isOutgoing))
                         }
                         val next = page.nextOffset
@@ -535,10 +549,29 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         requireClient().send(TdApi.OpenChat(chatId(conversation)))
     }
 
-    /** TDLib keeps its own connection; a network change tells it to drop dead sockets and reconnect at once. */
+    /**
+     * TDLib reconnects by itself, but while the phone sleeps its keep-alive
+     * pings stop and a connection can die without TDLib noticing: sends wait
+     * on the clock and new messages and read receipts stop arriving. So
+     * unless the connection answers a test request, reopen it; TDLib then
+     * fetches what it missed. A network change always reopens it.
+     */
     override suspend fun reconnect(networkChanged: Boolean) {
-        if (networkChanged) client?.post(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
+        val client = client ?: return
+        val alive = !networkChanged && isUp(connection) &&
+            withTimeoutOrNull(PROBE_MILLIS) { runCatching { client.send(TdApi.TestNetwork()) }.isSuccess } == true
+        if (alive) return
+        Log.i(TAG, "reopening connection (network changed: $networkChanged)")
+        client.post(TdApi.SetNetworkType(TdApi.NetworkTypeOther()))
     }
+
+    /** Official apps mark the account online while they're on screen. */
+    override fun setForeground(foreground: Boolean) {
+        this.foreground = foreground
+        client?.let(::postOnline)
+    }
+
+    private fun postOnline(target: TdClient) = target.post(TdApi.SetOption("online", TdApi.OptionValueBoolean(foreground)))
 
     override suspend fun closeConversation(conversation: Conversation) {
         client?.post(TdApi.CloseChat(chatId(conversation)))
@@ -562,17 +595,11 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             if (mention.start < 0 || mention.end > text.length) return@mapNotNull null
             TdApi.TextEntity(mention.start, mention.length, TdApi.TextEntityTypeMentionName(user))
         }.toTypedArray()
-        val request = TdApi.SendMessage().apply {
-            chatId = chat.id
-            inputMessageContent = TdApi.InputMessageText().apply {
-                this.text = TdApi.FormattedText(text, entities)
-                clearDraft = true
-            }
-            if (replyTo != null) {
-                this.replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTo.id.toLong() }
-            }
+        val content = TdApi.InputMessageText().apply {
+            this.text = TdApi.FormattedText(text, entities)
+            clearDraft = true
         }
-        val sent = requireClient().send(request)
+        val sent = send(conversation, content, replyTo)
         return synchronized(chat) { mapper.message(chat, sent) }
     }
 
@@ -636,10 +663,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             allowsMultipleAnswers = multiple
             type = TdApi.InputPollTypeRegular()
         }
-        requireClient().send(TdApi.SendMessage().apply {
-            chatId = chatId(conversation)
-            inputMessageContent = poll
-        })
+        send(conversation, poll)
     }
 
     override suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>) {
@@ -678,16 +702,18 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             is TdApi.ChatTypeSupergroup -> supergroups[type.supergroupId]?.status
             else -> null
         }
-        return status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
+        return isAdminStatus(status)
     }
+
+    private fun isAdminStatus(status: TdApi.ChatMemberStatus?) =
+        status is TdApi.ChatMemberStatusCreator || status is TdApi.ChatMemberStatusAdministrator
 
     override suspend fun listMembers(conversation: Conversation): List<Member> {
         val chat = requireChat(conversation)
         val client = requireClient()
         val members: List<TdApi.ChatMember> = when (val type = chat.type) {
             is TdApi.ChatTypePrivate -> return listOfNotNull(
-                (users[type.userId] ?: runCatching { client.send(TdApi.GetUser(type.userId)) }.getOrNull())
-                    ?.takeIf { it.id != myUserId() }?.let { Member(it.id.toString(), mapper.userName(it)) },
+                user(type.userId)?.takeIf { it.id != myUserId() }?.let { Member(it.id.toString(), mapper.userName(it)) },
             )
             is TdApi.ChatTypeBasicGroup -> client.send(TdApi.GetBasicGroupFullInfo(type.basicGroupId)).members.toList()
             is TdApi.ChatTypeSupergroup -> client.send(TdApi.GetSupergroupMembers(type.supergroupId, null, 0, 200)).members.toList()
@@ -696,9 +722,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         return members.mapNotNull { member ->
             val userId = (member.memberId as? TdApi.MessageSenderUser)?.userId ?: return@mapNotNull null
             if (userId == myUserId() || member.status is TdApi.ChatMemberStatusLeft || member.status is TdApi.ChatMemberStatusBanned) return@mapNotNull null
-            val user = users[userId] ?: runCatching { client.send(TdApi.GetUser(userId)) }.getOrNull()?.also { users[it.id] = it }
-            Member(userId.toString(), user?.let(mapper::userName) ?: "Telegram user",
-                isAdmin = member.status is TdApi.ChatMemberStatusCreator || member.status is TdApi.ChatMemberStatusAdministrator)
+            Member(userId.toString(), user(userId)?.let(mapper::userName) ?: "Telegram user", isAdmin = isAdminStatus(member.status))
         }.sortedBy { it.name.lowercase() }
     }
 
@@ -720,8 +744,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         val ids = members.mapNotNull { it.toLongOrNull() }.toLongArray()
         if (ids.isEmpty()) throw TelegramException(0, "Choose at least one person")
         val created = requireClient().send(TdApi.CreateNewBasicGroupChat(ids, title, 0))
-        val chat = chats[created.chatId] ?: requireClient().send(TdApi.GetChat(created.chatId)).also { chats.putIfAbsent(it.id, it) }
-        return synchronized(chat) { mapper.conversation(chats.getValue(chat.id)) }
+        return conversationFor(chats[created.chatId] ?: requireClient().send(TdApi.GetChat(created.chatId)))
     }
 
     override suspend fun renameGroup(conversation: Conversation, name: String) {
@@ -760,7 +783,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         require(files.size <= 10) { "An album can contain at most 10 files" }
         requireClient().send(TdApi.SendMessageAlbum().apply {
             chatId = chatId(conversation)
-            if (replyTo != null) this.replyTo = TdApi.InputMessageReplyToMessage().apply { messageId = replyTo.id.toLong() }
+            if (replyTo != null) this.replyTo = replyInput(replyTo)
             inputMessageContents = files.mapIndexed { index, file -> attachmentContent(file.path, file.mimeType, if (index == 0) caption else null) }.toTypedArray()
         })
     }
@@ -789,12 +812,14 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         send(conversation, content)
     }
 
-    private suspend fun send(conversation: Conversation, content: TdApi.InputMessageContent) {
+    private suspend fun send(conversation: Conversation, content: TdApi.InputMessageContent, replyTo: Message? = null): TdApi.Message =
         requireClient().send(TdApi.SendMessage().apply {
             chatId = chatId(conversation)
             inputMessageContent = content
+            if (replyTo != null) this.replyTo = replyInput(replyTo)
         })
-    }
+
+    private fun replyInput(message: Message) = TdApi.InputMessageReplyToMessage().apply { messageId = message.id.toLong() }
 
     override suspend fun searchMessages(query: String, conversation: Conversation?): List<SearchResult> {
         val found = if (conversation != null) requireClient().send(TdApi.SearchChatMessages().apply {
@@ -818,17 +843,14 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     }
 
     override suspend fun listContacts(): List<Contact> {
-        val client = requireClient()
-        return client.send(TdApi.GetContacts()).userIds.toList()
-            .mapNotNull { id -> users[id] ?: runCatching { client.send(TdApi.GetUser(id)) }.getOrNull() }
+        return requireClient().send(TdApi.GetContacts()).userIds.toList()
+            .mapNotNull { id -> user(id) }
             .map { Contact(it.id.toString(), id, mapper.userName(it), it.phoneNumber.takeIf { n -> n.isNotBlank() }?.let { n -> "+$n" }) }
             .sortedBy { it.name.lowercase() }
     }
 
     override suspend fun startChat(contact: Contact): Conversation {
-        val chat = requireClient().send(TdApi.CreatePrivateChat(contact.id.toLong(), false))
-        chats.putIfAbsent(chat.id, chat)
-        return synchronized(chat) { mapper.conversation(chats.getValue(chat.id)) }
+        return conversationFor(requireClient().send(TdApi.CreatePrivateChat(contact.id.toLong(), false)))
     }
 
     override suspend fun createDirect(address: String, title: String?): Conversation {
@@ -842,16 +864,28 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             runCatching { client.send(TdApi.SearchPublicChat(trimmed.removePrefix("@"))) }
                 .getOrElse { throw TelegramException(0, "No Telegram user called $trimmed") }
         }
-        chats.putIfAbsent(chat.id, chat)
-        return synchronized(chat) { mapper.conversation(chats.getValue(chat.id)) }
+        return conversationFor(chat)
     }
+
+    /** Maps a chat TDLib returned, keeping the copy its updates gave us when there is one. */
+    private fun conversationFor(chat: TdApi.Chat): Conversation {
+        val known = chats.putIfAbsent(chat.id, chat) ?: chat
+        return synchronized(known) { mapper.conversation(known) }
+    }
+
+    /** A user from TDLib's updates, or fetched (and kept) when we haven't seen them yet. */
+    private suspend fun user(userId: Long): TdApi.User? =
+        users[userId] ?: runCatching { requireClient().send(TdApi.GetUser(userId)) }.getOrNull()?.also { users[it.id] = it }
 
     internal fun myUserId(): Long = me?.id ?: 0L
 
     // endregion
 
     internal companion object {
+        private const val TAG = "Telegram"
         const val PAGE = 40
+        /** How long a live connection may take to answer [reconnect]'s test request. */
+        const val PROBE_MILLIS = 10_000L
         const val TYPING_MILLIS = 6_000L
         /** What Telegram's own apps send for "mute forever". */
         const val MUTE_FOREVER = Int.MAX_VALUE
@@ -862,6 +896,10 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
             is TdApi.ChatListFolder -> second is TdApi.ChatListFolder && first.chatFolderId == second.chatFolderId
             else -> false
         }
+
+        /** Connected; Updating is connected and catching up. */
+        fun isUp(state: TdApi.ConnectionState?) =
+            state is TdApi.ConnectionStateReady || state is TdApi.ConnectionStateUpdating
 
         fun kind(chat: TdApi.Chat): ConversationKind = when (chat.type) {
             is TdApi.ChatTypePrivate, is TdApi.ChatTypeSecret -> ConversationKind.DIRECT

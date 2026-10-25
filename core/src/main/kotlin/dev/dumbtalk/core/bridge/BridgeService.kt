@@ -244,27 +244,22 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
     override suspend fun listPinnedMessages(conversation: Conversation): List<Message> =
         json.messages(bridge { pinnedMessagesJson(conversation.remoteId) })
 
-    override suspend fun pinMessage(conversation: Conversation, message: Message, pinned: Boolean) {
-        bridge { pinMessage(conversation.remoteId, message.id, pinned) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun pinMessage(conversation: Conversation, message: Message, pinned: Boolean) =
+        changeMessages(conversation) { pinMessage(conversation.remoteId, message.id, pinned) }
 
     override suspend fun createPoll(conversation: Conversation, question: String, options: List<String>, multiple: Boolean) {
         require(question.isNotBlank()) { "A poll needs a question" }
         require(options.count { it.isNotBlank() } >= 2) { "A poll needs at least two options" }
-        bridge { createPoll(conversation.remoteId, question.trim(), JSONArray(options.map { it.trim() }.filter { it.isNotEmpty() }).toString(), multiple) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+        changeMessages(conversation) {
+            createPoll(conversation.remoteId, question.trim(), JSONArray(options.map { it.trim() }.filter { it.isNotEmpty() }).toString(), multiple)
+        }
     }
 
-    override suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>) {
-        bridge { votePoll(conversation.remoteId, message.id, JSONArray(options).toString()) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun votePoll(conversation: Conversation, message: Message, options: List<Int>) =
+        changeMessages(conversation) { votePoll(conversation.remoteId, message.id, JSONArray(options).toString()) }
 
-    override suspend fun closePoll(conversation: Conversation, message: Message) {
-        bridge { closePoll(conversation.remoteId, message.id) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun closePoll(conversation: Conversation, message: Message) =
+        changeMessages(conversation) { closePoll(conversation.remoteId, message.id) }
 
     override suspend fun markRead(conversation: Conversation) {
         if (conversation.unreadCount == 0 && conversation.lastMessage?.direction != Direction.INCOMING) return
@@ -284,9 +279,7 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         val encoded = if (spans.isEmpty()) "" else JSONArray(spans.map {
             JSONObject().put("start", it.start).put("length", it.length).put("style", "mention").put("id", it.target)
         }).toString()
-        val sent = json.message(bridge { sendText(conversation.remoteId, text, replyTo?.id.orEmpty(), encoded) })
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-        return sent
+        return json.message(changeMessages(conversation) { sendText(conversation.remoteId, text, replyTo?.id.orEmpty(), encoded) })
     }
 
     override suspend fun listMembers(conversation: Conversation): List<Member> =
@@ -297,11 +290,8 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         emit(ServiceEvent.ConversationsChanged(id))
     }
 
-    override suspend fun respondToMessageRequest(conversation: Conversation, accept: Boolean) {
-        bridge { respondRequest(conversation.remoteId, if (accept) "accept" else "delete") }
-        emit(ServiceEvent.ConversationsChanged(id))
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun respondToMessageRequest(conversation: Conversation, accept: Boolean) =
+        changeChat(conversation) { respondRequest(it, if (accept) "accept" else "delete") }
 
     override suspend fun createGroup(name: String, members: List<String>): Conversation {
         val chat = bridge { createGroup(name, JSONArray(members).toString()) }
@@ -309,37 +299,38 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         return json.conversation(bridge { chatJson(chat) })
     }
 
-    override suspend fun renameGroup(conversation: Conversation, name: String) = groupChange(conversation) { renameGroup(it, name) }
+    override suspend fun renameGroup(conversation: Conversation, name: String) = changeChat(conversation) { renameGroup(it, name) }
 
     override suspend fun addGroupMembers(conversation: Conversation, members: List<String>) =
-        groupChange(conversation) { addMembers(it, JSONArray(members).toString()) }
+        changeChat(conversation) { addMembers(it, JSONArray(members).toString()) }
 
-    override suspend fun removeGroupMember(conversation: Conversation, member: Member) = groupChange(conversation) { removeMember(it, member.id) }
+    override suspend fun removeGroupMember(conversation: Conversation, member: Member) = changeChat(conversation) { removeMember(it, member.id) }
 
-    override suspend fun leaveGroup(conversation: Conversation) = groupChange(conversation) { leaveGroup(it) }
+    override suspend fun leaveGroup(conversation: Conversation) = changeChat(conversation) { leaveGroup(it) }
 
-    private suspend fun groupChange(conversation: Conversation, change: NativeBridge.(String) -> Unit) {
-        bridge { change(conversation.remoteId) }
+    /**
+     * Runs a bridge call that changes [conversation]'s messages, then tells an
+     * open chat to reload; not every bridge reports its own changes.
+     */
+    private suspend fun <T> changeMessages(conversation: Conversation, change: NativeBridge.() -> T): T =
+        bridge(change).also { emit(ServiceEvent.MessagesChanged(id, conversation.id)) }
+
+    /** Like [changeMessages] for a change to the chat itself, given its remote id. */
+    private suspend fun changeChat(conversation: Conversation, change: NativeBridge.(String) -> Unit) {
+        changeMessages(conversation) { change(conversation.remoteId) }
         emit(ServiceEvent.ConversationsChanged(id))
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
     }
 
     override suspend fun setTyping(conversation: Conversation, active: Boolean) = bridge { setTyping(conversation.remoteId, active) }
 
-    override suspend fun react(conversation: Conversation, message: Message, emoji: String, remove: Boolean) {
-        bridge { react(conversation.remoteId, message.id, emoji, remove) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun react(conversation: Conversation, message: Message, emoji: String, remove: Boolean) =
+        changeMessages(conversation) { react(conversation.remoteId, message.id, emoji, remove) }
 
-    override suspend fun editMessage(conversation: Conversation, message: Message, text: String) {
-        bridge { edit(conversation.remoteId, message.id, text) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun editMessage(conversation: Conversation, message: Message, text: String) =
+        changeMessages(conversation) { edit(conversation.remoteId, message.id, text) }
 
-    override suspend fun deleteMessage(conversation: Conversation, message: Message) {
-        bridge { delete(conversation.remoteId, message.id) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
-    }
+    override suspend fun deleteMessage(conversation: Conversation, message: Message) =
+        changeMessages(conversation) { delete(conversation.remoteId, message.id) }
 
     override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) {
         update.archived?.let { value -> bridge { setArchived(conversation.remoteId, value) } }
@@ -357,13 +348,11 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
         bridge { downloadMediaAt(conversation.remoteId, message.id, message.attachments.indexOf(attachment).coerceAtLeast(0)) }
 
     override suspend fun sendAttachment(conversation: Conversation, path: String, mimeType: String, caption: String?) {
-        bridge { sendMedia(conversation.remoteId, path, mimeType, caption.orEmpty(), false) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+        changeMessages(conversation) { sendMedia(conversation.remoteId, path, mimeType, caption.orEmpty(), false) }
     }
 
     override suspend fun sendVoiceNote(conversation: Conversation, path: String, mimeType: String, durationMillis: Long) {
-        bridge { sendMedia(conversation.remoteId, path, mimeType, "", true) }
-        emit(ServiceEvent.MessagesChanged(id, conversation.id))
+        changeMessages(conversation) { sendMedia(conversation.remoteId, path, mimeType, "", true) }
     }
 
     override suspend fun listContacts(): List<Contact> = json.contacts(bridge { contactsJson() })

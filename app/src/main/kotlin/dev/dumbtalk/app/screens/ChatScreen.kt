@@ -64,6 +64,7 @@ import dev.dumbtalk.app.ui.ServiceIcon
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.focusAfterFrame
 import dev.dumbtalk.app.ui.focusCard
 import dev.dumbtalk.app.ui.moveFocusOn
 import dev.dumbtalk.app.ui.hasSpoilers
@@ -181,7 +182,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
         }
     }
 
-    fun focusInput() = scope.launch { withFrameNanos { }; runCatching { inputFocus.requestFocus() } }
+    fun focusInput() = scope.launch { inputFocus.focusAfterFrame() }
 
     /**
      * Selects a message, scrolls it into view and focuses it. Rows added
@@ -594,7 +595,7 @@ fun ChatScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Chat) {
                             focusByMessageId = messageFocusById,
                             onRight = {
                                 bottomRequested = true
-                                scope.launch { withFrameNanos { }; bottomFocus.requestFocus() }
+                                scope.launch { bottomFocus.focusAfterFrame() }
                             },
                             revealed = revealed.toSet(),
                             loadAvatar = service::personAvatar,

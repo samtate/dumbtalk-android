@@ -35,6 +35,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -146,6 +147,15 @@ fun Modifier.moveFocusOn(key: Key, target: FocusRequester?): Modifier {
         if (event.type == KeyEventType.KeyDown) moved[0] = runCatching { target.requestFocus() }.isSuccess
         moved[0]
     }
+}
+
+/**
+ * Focuses this after the next frame, once a newly composed target is
+ * attached. Returns false, rather than throwing, when it isn't on screen.
+ */
+suspend fun FocusRequester.focusAfterFrame(): Boolean {
+    withFrameNanos { }
+    return runCatching { requestFocus() }.getOrDefault(false)
 }
 
 /** Near-square corners, like a character display's cells. */

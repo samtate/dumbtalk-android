@@ -57,7 +57,7 @@ fun SmsSetupScreen(sms: SmsService, navigator: Navigator) {
         lifecycle.addObserver(observer)
         onDispose { lifecycle.removeObserver(observer) }
     }
-    LaunchedEffect(Unit) { withFrameNanos { }; requester.requestFocus() }
+    LaunchedEffect(Unit) { requester.focusAfterFrame() }
     Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Back") { navigator.pop() })
     Column(Modifier.fillMaxSize()) {
         Header("SMS")

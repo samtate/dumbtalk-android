@@ -14,7 +14,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.text.font.FontWeight
@@ -31,6 +30,7 @@ import dev.dumbtalk.app.ui.ServiceIcon
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.focusAfterFrame
 import dev.dumbtalk.core.ServiceEvent
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.ServiceStatus
@@ -65,8 +65,7 @@ fun ServicesScreen(app: DumbTalkApp, navigator: Navigator) {
 
     LaunchedEffect(statuses != null, confirmDisconnect) {
         if (statuses == null || confirmDisconnect != null) return@LaunchedEffect
-        withFrameNanos { }
-        runCatching { requester.requestFocus() }
+        requester.focusAfterFrame()
     }
 
     val pending = confirmDisconnect

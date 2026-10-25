@@ -18,7 +18,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -33,6 +32,7 @@ import dev.dumbtalk.app.ui.MenuTile
 import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.focusAfterFrame
 import dev.dumbtalk.core.ConversationKind
 import dev.dumbtalk.core.Capabilities
 import dev.dumbtalk.app.ChatTool
@@ -68,7 +68,7 @@ fun MenuScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Menu) {
     var showDeleteThread by remember { mutableStateOf(false) }
     var showPollCreator by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(showPollCreator, showDeleteThread) {
-        if (!showPollCreator && !showDeleteThread) { withFrameNanos { }; runCatching { requester.requestFocus() } }
+        if (!showPollCreator && !showDeleteThread) requester.focusAfterFrame()
     }
     val selected = screen.selected
     val service = selected?.let { app.registry.forConversation(it) }

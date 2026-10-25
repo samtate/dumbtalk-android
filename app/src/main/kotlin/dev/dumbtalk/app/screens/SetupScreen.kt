@@ -22,7 +22,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -49,6 +48,7 @@ import dev.dumbtalk.app.ui.SoftkeyAction
 import dev.dumbtalk.app.ui.Softkeys
 import dev.dumbtalk.app.ui.TextInput
 import dev.dumbtalk.app.ui.Type
+import dev.dumbtalk.app.ui.focusAfterFrame
 import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.SetupStep
 import kotlinx.coroutines.launch
@@ -87,8 +87,7 @@ fun SetupScreen(app: DumbTalkApp, navigator: Navigator, serviceId: ServiceId) {
     LaunchedEffect(step) {
         val current = step
         if (current is SetupStep.Qr || current is SetupStep.PairCode) advance()
-        withFrameNanos { }
-        runCatching { requester.requestFocus() }
+        requester.focusAfterFrame()
     }
 
     val current = step

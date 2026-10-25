@@ -322,6 +322,9 @@ interface MessagingService {
      */
     suspend fun reconnect(networkChanged: Boolean) {}
 
+    /** Whether the app is on screen; called on the main thread, so it mustn't block. */
+    fun setForeground(foreground: Boolean) {}
+
     suspend fun listConversations(archived: Boolean): ConversationPage
     /** Fetches a service-provided conversation photo into local storage when available. */
     suspend fun conversationAvatar(conversation: Conversation): String? = conversation.avatarPath

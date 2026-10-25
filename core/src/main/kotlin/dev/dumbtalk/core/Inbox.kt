@@ -34,6 +34,9 @@ class ServiceRegistry(val installed: List<MessagingService>) {
         installed.map { service -> async { runCatching { service.reconnect(networkChanged) } } }.awaitAll()
     }
 
+    /** See [MessagingService.setForeground]. */
+    fun setForeground(foreground: Boolean) = installed.forEach { service -> runCatching { service.setForeground(foreground) } }
+
     /** One service failing must not blank the whole inbox. */
     suspend fun inbox(archived: Boolean): ConversationPage = coroutineScope {
         val pages = connected()

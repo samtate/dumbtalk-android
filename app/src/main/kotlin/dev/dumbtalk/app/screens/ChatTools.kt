@@ -72,15 +72,14 @@ internal fun ChatToolsPanel(
     val index = results.orEmpty().indexOfFirst { it.id == restoreId }.coerceAtLeast(0)
     val targetId = results.orEmpty().getOrNull(index)?.id
     LaunchedEffect(tool) {
-        if (tool == ChatTool.SEARCH && restoreId == null) { withFrameNanos { }; input.requestFocus() }
+        if (tool == ChatTool.SEARCH && restoreId == null) input.focusAfterFrame()
     }
     LaunchedEffect(results, error) {
-        if (error != null && tool == ChatTool.PINS) { withFrameNanos { }; resultFocus.requestFocus() }
+        if (error != null && tool == ChatTool.PINS) resultFocus.focusAfterFrame()
         else if (!results.isNullOrEmpty() && (restoreId != null || tool == ChatTool.PINS)) {
             list.requestScrollToItem(index)
             snapshotFlow { list.layoutInfo.visibleItemsInfo.any { it.key == targetId } }.first { it }
-            withFrameNanos { }
-            resultFocus.requestFocus()
+            resultFocus.focusAfterFrame()
         }
     }
     val typing = LocalSoftkeys.current.typing

@@ -18,7 +18,7 @@ internal fun DeleteConfirmation(title: String, description: String, onDelete: su
     var error by remember { mutableStateOf<String?>(null) }
     val scope = rememberCoroutineScope()
     val focus = remember { FocusRequester() }
-    LaunchedEffect(busy) { if (!busy) { withFrameNanos { }; focus.requestFocus() } }
+    LaunchedEffect(busy) { if (!busy) focus.focusAfterFrame() }
     Softkeys(center = SoftkeyAction(if (busy) "Deleting" else "Select"), right = SoftkeyAction("Back") { if (!busy) onCancel() })
     Column(Modifier.fillMaxSize()) {
         Header(title)
