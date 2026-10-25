@@ -16,6 +16,11 @@ val localProperties = Properties().apply {
 val telegramApiId = System.getenv("TELEGRAM_API_ID") ?: localProperties.getProperty("telegram.api_id") ?: "0"
 val telegramApiHash = System.getenv("TELEGRAM_API_HASH") ?: localProperties.getProperty("telegram.api_hash") ?: ""
 
+// CI sets these: the tag without its "v" for releases, and the run number so
+// every build installs over the last. Local builds are 1 / "dev".
+val buildNumber = System.getenv("DUMBTALK_BUILD_NUMBER")?.toIntOrNull() ?: 1
+val buildVersion = System.getenv("DUMBTALK_VERSION")?.takeIf { it.isNotBlank() } ?: "dev"
+
 android {
     namespace = "dev.dumbtalk.app"
     compileSdk = 35
@@ -24,8 +29,8 @@ android {
         applicationId = "dev.dumbtalk.app"
         minSdk = 29
         targetSdk = 35
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = buildNumber
+        versionName = buildVersion
         ndk { abiFilters += "arm64-v8a" }
         buildConfigField("int", "TELEGRAM_API_ID", telegramApiId.ifBlank { "0" })
         buildConfigField("String", "TELEGRAM_API_HASH", "\"$telegramApiHash\"")

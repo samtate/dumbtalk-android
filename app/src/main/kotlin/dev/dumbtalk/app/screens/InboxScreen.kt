@@ -1,5 +1,6 @@
 package dev.dumbtalk.app.screens
 
+import android.app.Activity
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -23,6 +24,10 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.platform.LocalContext
+import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.dumbtalk.app.background.BackgroundStatus
+import dev.dumbtalk.app.ui.focusAfterFrame
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -82,13 +87,16 @@ fun InboxScreen(app: DumbTalkApp, navigator: Navigator, archived: Boolean) {
         val count = connected?.size
         Header(
             if (archived) "Archived" else "DumbTalk",
-            trailing = if (archived || count == null) null else {
-                { Pill(if (count == 1) "1 service" else "$count services") }
+            trailing = when {
+                archived || count == null -> null
+                app.demo -> { { Pill("Demo") } }
+                else -> { { Pill(if (count == 1) "1 service" else "$count services") } }
             },
         )
+        if (!archived && (count ?: 0) > 0 && app.guidesUser) BackgroundWarning()
         when {
             page == null -> CenteredMessage("Loading…")
-            connected?.isEmpty() == true -> NoServices(navigator)
+            connected?.isEmpty() == true -> NoServices(app, navigator)
             conversations.isEmpty() -> CenteredMessage(if (archived) "No archived chats" else "No conversations yet")
             else -> ConversationList(app, conversations, focusedId, onFocus = {
                 focusedId = it.id
@@ -99,14 +107,33 @@ fun InboxScreen(app: DumbTalkApp, navigator: Navigator, archived: Boolean) {
 }
 
 @Composable
-private fun NoServices(navigator: Navigator) {
+private fun NoServices(app: DumbTalkApp, navigator: Navigator) {
     val requester = remember { FocusRequester() }
-    LaunchedEffect(Unit) { runCatching { requester.requestFocus() } }
+    val activity = LocalContext.current as Activity
+    LaunchedEffect(Unit) { requester.focusAfterFrame() }
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Image(painterResource(R.drawable.dumbtalk_logo), null, Modifier.size(56.dp).clip(Square))
         CenteredMessage("Connect Signal, Telegram or WhatsApp to start.")
         ListButton("Connect a service", { navigator.push(Screen.Services) }, focusRequester = requester)
+        ListButton("Try the demo", { app.restartWithDemo(activity, true) }, description = "Made-up chats, to try the keys first")
     }
+}
+
+/** Says why messages may arrive late; Settings → Background delivery fixes it. */
+@Composable
+private fun BackgroundWarning() {
+    val context = LocalContext.current
+    var status by remember { mutableStateOf(BackgroundStatus.of(context)) }
+    LifecycleResumeEffect(Unit) {
+        status = BackgroundStatus.of(context)
+        onPauseOrDispose { }
+    }
+    if (status.ok) return
+    BasicText(
+        "${status.summary}. Fix it in Menu → Settings.",
+        style = Type.small.copy(color = Palette.error),
+        modifier = Modifier.fillMaxWidth().padding(horizontal = 9.dp, vertical = 4.dp),
+    )
 }
 
 @Composable

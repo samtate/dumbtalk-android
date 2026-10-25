@@ -1,5 +1,8 @@
 name: Android
 
+# Every push and pull request: test, then build a debug APK. A v* tag also
+# builds a signed release APK, which the release job publishes.
+
 on:
   push:
     branches: [main]
@@ -7,13 +10,23 @@ on:
   pull_request:
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   build:
     runs-on: ubuntu-latest
+    env:
+      # versionCode: rises with every run, so each APK installs over the last.
+      DUMBTALK_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Version
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="dev-${GITHUB_SHA::7}"; fi
+          echo "DUMBTALK_VERSION=$version" >> "$GITHUB_ENV"
+
+      - uses: gradle/actions/wrapper-validation@v4
 
       - uses: actions/setup-java@v4
         with:
@@ -42,7 +55,7 @@ jobs:
       - name: Install Signal bridge tools
         run: |
           sudo apt-get update && sudo apt-get install -y protobuf-compiler clang libclang-dev
-          cargo install --locked cargo-ndk
+          cargo install --locked cargo-ndk --version 4.1.2
 
       - uses: Swatinem/rust-cache@v2
         with:
@@ -59,16 +72,36 @@ jobs:
       - name: Test
         run: ./gradlew :core:testDebugUnitTest :app:testDebugUnitTest
 
+      # No Telegram credentials are built in: each user enters their own
+      # (from my.telegram.org) when linking Telegram.
       - name: Build debug APK
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
         run: ./gradlew :app:assembleDebug
 
       - uses: actions/upload-artifact@v4
         with:
           name: dumbtalk-debug
           path: app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 14
+
+      - name: Build signed release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.DUMBTALK_KEYSTORE_BASE64 }}
+          DUMBTALK_KEYSTORE_PASSWORD: ${{ secrets.DUMBTALK_KEYSTORE_PASSWORD }}
+          DUMBTALK_KEY_ALIAS: ${{ secrets.DUMBTALK_KEY_ALIAS }}
+          DUMBTALK_KEY_PASSWORD: ${{ secrets.DUMBTALK_KEY_PASSWORD }}
+        run: |
+          test -n "$KEYSTORE_BASE64" || { echo "Release signing secrets are not configured"; exit 1; }
+          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
+          DUMBTALK_KEYSTORE="$RUNNER_TEMP/release.jks" ./gradlew :app:assembleRelease
+          cp app/build/outputs/apk/release/app-release.apk "dumbtalk-${GITHUB_REF_NAME}.apk"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: dumbtalk-release
+          path: dumbtalk-${{ github.ref_name }}.apk
+          retention-days: 7
 
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -82,65 +115,14 @@ jobs:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: build
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-java@v4
+      - uses: actions/download-artifact@v4
         with:
-          distribution: temurin
-          java-version: 17
-
-      - uses: gradle/actions/setup-gradle@v4
-
-      - name: Fetch TDLib
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: scripts/fetch-tdlib.sh
-
-      - uses: actions/setup-go@v5
-        with:
-          go-version: "1.26.x"
-          cache-dependency-path: bridge/whatsapp/go.sum
-
-      - name: Build WhatsApp bridge
-        run: |
-          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --licenses >/dev/null
-          "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "ndk;27.2.12479018" >/dev/null
-          (cd bridge/whatsapp && go test ./...)
-          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-wabridge.sh
-
-      - name: Install Signal bridge tools
-        run: |
-          sudo apt-get update && sudo apt-get install -y protobuf-compiler clang libclang-dev
-          cargo install --locked cargo-ndk
-
-      - uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: bridge/signal
-
-      - name: Build Signal bridge
-        env:
-          # The runner's CMake can't use Ninja for BoringSSL; make is available.
-          CMAKE_GENERATOR: Unix Makefiles
-        run: |
-          (cd bridge/signal && cargo test --lib)
-          ANDROID_NDK_HOME="$ANDROID_HOME/ndk/27.2.12479018" scripts/build-sigbridge.sh
-
-      - name: Build signed release APK
-        env:
-          TELEGRAM_API_ID: ${{ secrets.TELEGRAM_API_ID }}
-          TELEGRAM_API_HASH: ${{ secrets.TELEGRAM_API_HASH }}
-          KEYSTORE_BASE64: ${{ secrets.DUMBTALK_KEYSTORE_BASE64 }}
-          DUMBTALK_KEYSTORE_PASSWORD: ${{ secrets.DUMBTALK_KEYSTORE_PASSWORD }}
-          DUMBTALK_KEY_ALIAS: ${{ secrets.DUMBTALK_KEY_ALIAS }}
-          DUMBTALK_KEY_PASSWORD: ${{ secrets.DUMBTALK_KEY_PASSWORD }}
-        run: |
-          test -n "$KEYSTORE_BASE64" || { echo "Release signing secrets are not configured"; exit 1; }
-          echo "$KEYSTORE_BASE64" | base64 -d > "$RUNNER_TEMP/release.jks"
-          DUMBTALK_KEYSTORE="$RUNNER_TEMP/release.jks" ./gradlew :app:assembleRelease
-          cp app/build/outputs/apk/release/app-release.apk "dumbtalk-${GITHUB_REF_NAME}.apk"
+          name: dumbtalk-release
 
       - name: Publish GitHub release
         env:
           GH_TOKEN: ${{ github.token }}
-        run: gh release create "$GITHUB_REF_NAME" "dumbtalk-${GITHUB_REF_NAME}.apk" --generate-notes
+        run: gh release create "$GITHUB_REF_NAME" "dumbtalk-${GITHUB_REF_NAME}.apk" --repo "$GITHUB_REPOSITORY" --generate-notes

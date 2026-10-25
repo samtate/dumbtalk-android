@@ -88,7 +88,8 @@ class SignalService(context: Context, dataDir: File, deviceName: String, scope: 
             "qr" -> SetupStep.Qr(
                 "qr", "Scan QR code",
                 "On your main phone open Signal → Settings → Linked devices → Link new device, then scan this code. " +
-                    "Signal only links by scanning, so if Signal is on this phone, show this code on another screen.",
+                    "Signal only links by scanning, so if Signal is on this phone, show this code on another screen. " +
+                    "Old messages don't come across: chats start from now.",
                 payload.getString("code"),
             )
             "paired" -> complete()
@@ -102,7 +103,8 @@ class SignalService(context: Context, dataDir: File, deviceName: String, scope: 
 
     private fun complete() = SetupStep.Complete(
         "Signal connected",
-        "Signal doesn't share old messages with new devices, so chats start from now.",
+        "Signal doesn't share old messages with new devices, so chats start from now. Signal unlinks devices " +
+            "it hasn't heard from in about 30 days; keeping DumbTalk connected counts.",
     )
 }
 

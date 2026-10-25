@@ -46,7 +46,9 @@ class WhatsAppService(dataDir: File, deviceName: String, scope: CoroutineScope) 
     override suspend fun beginSetup(): SetupStep {
         if (bridge { isLinked() }) return complete()
         return SetupStep.Choice(
-            "method", "Link WhatsApp", "Choose how to link this phone.",
+            "method", "Link WhatsApp",
+            "This phone becomes a linked device of WhatsApp on your main phone. Unofficial apps carry some risk " +
+                "of an account ban. Choose how to link.",
             listOf(
                 SetupStep.Choice.Option("qr", "QR code", "Scan from WhatsApp on your main phone"),
                 SetupStep.Choice.Option("phone", "Phone number", "Type a pairing code instead"),
@@ -101,7 +103,8 @@ class WhatsAppService(dataDir: File, deviceName: String, scope: CoroutineScope) 
 
     private fun complete() = SetupStep.Complete(
         "WhatsApp connected",
-        "Recent chats arrive from your main phone over the next few minutes.",
+        "Recent chats arrive from your main phone over the next few minutes. WhatsApp signs linked devices " +
+            "out after about 14 days without the main phone online, so open WhatsApp there now and then.",
     )
 }
 

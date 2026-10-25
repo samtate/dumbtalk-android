@@ -13,3 +13,4 @@ svc-whatsapp/libs/
 svc-signal/libs/
 svc-signal/src/main/jniLibs/
 svc-signal/src/main/kotlin-generated/
+bridge/signal/target/

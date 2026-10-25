@@ -27,7 +27,9 @@ import androidx.lifecycle.lifecycleScope
 import dev.dumbtalk.app.background.BackgroundPermissions
 import dev.dumbtalk.app.background.MessageNotifier
 import dev.dumbtalk.app.background.Visibility
+import dev.dumbtalk.app.screens.AboutScreen
 import dev.dumbtalk.app.screens.ChatScreen
+import dev.dumbtalk.app.screens.HelpScreen
 import dev.dumbtalk.app.screens.ChatToolsScreen
 import dev.dumbtalk.app.screens.InboxScreen
 import dev.dumbtalk.app.screens.MenuScreen
@@ -38,7 +40,6 @@ import dev.dumbtalk.app.screens.SearchScreen
 import dev.dumbtalk.app.screens.ServicesScreen
 import dev.dumbtalk.app.screens.SettingsScreen
 import dev.dumbtalk.app.screens.SetupScreen
-import dev.dumbtalk.app.sms.SmsService
 import dev.dumbtalk.app.sms.SmsWork
 import dev.dumbtalk.app.ui.DumbTalkTheme
 import dev.dumbtalk.app.ui.LocalSoftkeys
@@ -58,7 +59,9 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         val app = application as DumbTalkApp
-        permissions.ask()
+        // The welcome explains what the permission prompts are for, so they wait for it.
+        if (app.guidesUser && !app.welcomed && savedInstanceState == null) navigator.push(Screen.Help(firstRun = true))
+        else permissions.ask()
         openFromNotification(intent)
         acceptSmsIntent(intent)
         setContent {
@@ -84,7 +87,13 @@ class MainActivity : ComponentActivity() {
                                     Screen.Services -> ServicesScreen(app, navigator)
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
-                                    Screen.Settings -> SettingsScreen(navigator)
+                                    Screen.Settings -> SettingsScreen(app, navigator)
+                                    is Screen.Help -> HelpScreen(navigator, screen.firstRun) {
+                                        app.welcomed = true
+                                        navigator.pop()
+                                        permissions.ask()
+                                    }
+                                    Screen.About -> AboutScreen(navigator)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
                                     Screen.NewNumber -> NewNumberScreen(app, navigator)
                                     Screen.NewGroup -> NewGroupScreen(app, navigator)
@@ -104,7 +113,10 @@ class MainActivity : ComponentActivity() {
         super.onResume()
         resumed = true
         val app = application as DumbTalkApp
-        (app.registry.installed.firstOrNull { it is SmsService } as? SmsService)?.refresh()
+        app.registry.setForeground(true)
+        // A connection may have died unnoticed while the phone slept.
+        app.scope.launch { app.registry.reconnectAll(networkChanged = false) }
+        app.sms?.refresh()
         SmsWork.scope.launch { SmsWork.drain(this@MainActivity) }
         openPendingSms()
     }
@@ -112,6 +124,7 @@ class MainActivity : ComponentActivity() {
     override fun onPause() {
         resumed = false
         Visibility.current = null
+        (application as DumbTalkApp).registry.setForeground(false)
         super.onPause()
     }
 
@@ -162,7 +175,7 @@ class MainActivity : ComponentActivity() {
     private fun openPendingSms() {
         val target = pendingSms ?: return
         val app = application as DumbTalkApp
-        val sms = app.registry.installed.filterIsInstance<SmsService>().firstOrNull() ?: return
+        val sms = app.sms ?: return
         if (!sms.enabled()) {
             navigator.popToRoot()
             navigator.push(Screen.Setup(ServiceId.SMS))

@@ -19,6 +19,9 @@ sealed interface Screen {
     data object NewMessage : Screen
     data object NewNumber : Screen
     data object NewGroup : Screen
+    /** [firstRun]: the welcome, which leads on to Android's permission prompts. */
+    data class Help(val firstRun: Boolean = false) : Screen
+    data object About : Screen
 }
 
 class Navigator {

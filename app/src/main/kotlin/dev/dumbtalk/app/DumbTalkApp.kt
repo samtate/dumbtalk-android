@@ -1,6 +1,9 @@
 package dev.dumbtalk.app
 
+import android.app.Activity
 import android.app.Application
+import android.content.ComponentName
+import android.content.Intent
 import android.os.Build
 import dev.dumbtalk.app.background.ConnectionService
 import dev.dumbtalk.app.background.MessageNotifier
@@ -9,7 +12,9 @@ import dev.dumbtalk.app.sms.SmsService
 import dev.dumbtalk.app.ui.Fonts
 import dev.dumbtalk.core.MessagingService
 import dev.dumbtalk.core.ServiceEvent
+import dev.dumbtalk.core.ServiceId
 import dev.dumbtalk.core.ServiceRegistry
+import dev.dumbtalk.core.demo.DemoService
 import dev.dumbtalk.signal.SignalService
 import dev.dumbtalk.telegram.TelegramConfig
 import dev.dumbtalk.telegram.TelegramService
@@ -17,6 +22,7 @@ import dev.dumbtalk.whatsapp.WhatsAppService
 import java.io.File
 import java.util.Locale
 import java.util.concurrent.ConcurrentHashMap
+import kotlin.system.exitProcess
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -34,14 +40,38 @@ open class DumbTalkApp : Application() {
     lateinit var notifier: MessageNotifier
         private set
 
+    /** The SMS service, unless tests left it out. */
+    val sms: SmsService? get() = registry.installed.firstNotNullOfOrNull { it as? SmsService }
+
     /** Unsent text per conversation id, kept while the app runs. */
     val drafts = ConcurrentHashMap<String, String>()
 
     /** Robolectric can't build custom font fallback chains. */
     protected open val usePixelFallbackFonts = true
 
+    /** The first-run welcome and the inbox's background warning; tests turn them off to start in the inbox. */
+    open val guidesUser = true
+
+    private val prefs by lazy { getSharedPreferences("setup", MODE_PRIVATE) }
+
+    /** The welcome has been seen. */
+    var welcomed: Boolean
+        get() = prefs.getBoolean(WELCOMED, false)
+        set(value) = prefs.edit().putBoolean(WELCOMED, value).apply()
+
+    /** Demo chats stand in for the real services, so people can try the keys without linking anything. */
+    val demo: Boolean get() = prefs.getBoolean(DEMO, false)
+
+    /** Turns the demo on or off; the services are only built at startup, so this restarts the app. */
+    fun restartWithDemo(activity: Activity, demo: Boolean) {
+        prefs.edit().putBoolean(DEMO, demo).commit()
+        activity.startActivity(Intent.makeRestartActivityTask(ComponentName(this, MainActivity::class.java)))
+        exitProcess(0)
+    }
+
     /** The messaging services, in inbox order. Tests swap in demo services. */
     protected open fun createServices(): List<MessagingService> {
+        if (demo) return ServiceId.entries.filter { it != ServiceId.SMS }.map { DemoService(it, scope) }
         val device = "DumbTalk (${Build.MODEL})"
         return listOf(
             SignalService(this, File(filesDir, "signal"), device, scope),
@@ -81,5 +111,9 @@ open class DumbTalkApp : Application() {
         }
         ConnectionService.start(this)
     }
-}
 
+    private companion object {
+        const val WELCOMED = "welcomed"
+        const val DEMO = "demo"
+    }
+}
