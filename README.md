@@ -77,9 +77,38 @@ Things to know:
   **Signal unlinks devices after about 30 days** it hasn't heard from them. Link again if it
   happens.
 - **Unofficial clients carry some risk of an account ban**, especially on WhatsApp.
-- **Nothing is backed up.** Disconnecting a service, uninstalling or resetting the phone deletes
-  DumbTalk's copy of your messages. Your chats stay on your main phone (and Telegram's servers),
-  except Signal messages received only by DumbTalk.
+- **Back up before you rely on it.** Disconnecting a service, uninstalling or resetting the phone
+  deletes DumbTalk's copy of your messages unless you have a backup (see below). Your chats stay
+  on your main phone (and Telegram's servers), except Signal messages received only by DumbTalk.
+
+## Sending
+
+A message appears in the chat the moment you send it, with a clock, and DumbTalk sends it once
+in the background, in order. If it can't be sent it stays in the chat with a red **!** and the
+reason; **◀ → Retry send** sends it again under the same ID, so if the first attempt got through
+after all, nobody sees it twice. While a network is offline the chat says so, and messages wait
+(up to five minutes) for the connection instead of failing.
+
+## Notifications, online status and receipts
+
+- Each chat's notification has **Reply** and **Mark read**, so you can answer without opening
+  DumbTalk (not yet for SMS).
+- A one-to-one chat shows **online** or **last seen** under its name, and **Group info** shows it
+  for each member, on Telegram and WhatsApp. Signal doesn't share this with anyone.
+- **◀ on your message** lists each recipient with when it was **delivered**, **read** and
+  **played**: in a group, exactly who has read it. Telegram only tells read times (for small
+  groups, for a week, and in private chats where both people show read times).
+
+## Backup and moving phones
+
+**◀ Menu → Settings → Back up** saves an encrypted copy of DumbTalk (your chats, linked accounts
+and settings, and optionally photos and files) to a file you choose, such as on an SD card. It's
+encrypted with a passphrase you pick; without it the backup can't be opened, so keep it safe.
+
+To move to a new phone, install DumbTalk there and choose **Restore from backup** on the first
+screen (or in Settings). Then **remove DumbTalk from the old phone**: the same linked device
+running on two phones breaks its WhatsApp and Signal sessions. SMS isn't in backups; it stays in
+Android's own message store.
 
 ## SMS
 
@@ -129,6 +158,8 @@ If messages arrive late:
 | Mentions, formatting, disappearing messages | ✅ ¹ | ✅ ¹ | ✅ ¹ |
 | Message requests, blocking | ✅ ¹ | ✅ ¹ | blocking only ¹ |
 | Groups: create, rename, add, remove, leave | ✅ ¹ | ✅ ¹ | ✅ ¹ |
+| Online / last seen | ❌ (not shared) | ✅ | ✅ ¹ |
+| Who read it, and when (groups too) | ✅ ¹ | read only | ✅ ¹ |
 | Calls | ❌ | ❌ | ❌ |
 
 ¹ Built but not yet tested with a real account. Forwarding works between any chats on any
@@ -147,7 +178,8 @@ Signal bridge rustup (it installs the pinned Rust 1.99 itself), `cargo install c
 Ninja, clang/libclang and protoc. Set `ANDROID_HOME` and `ANDROID_NDK_HOME`.
 
 Build the three native pieces first. Gradle won't configure the project until the Signal bridge
-exists.
+exists. If `cargo test` has already built the Signal bridge's dependencies with another CMake
+generator, build it with the same one (CI uses `CMAKE_GENERATOR="Unix Makefiles"`).
 
 ```sh
 scripts/fetch-tdlib.sh       # Telegram: TDLib from this repo's TDLib release
