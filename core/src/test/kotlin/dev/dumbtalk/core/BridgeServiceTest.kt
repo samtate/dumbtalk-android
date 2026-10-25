@@ -38,7 +38,7 @@ private class FakeBridge : NativeBridge {
     override fun isOnline() = online
     override fun accountJson() = """{"phone":"447000000000"}"""
     override fun logout() = call("logout")
-    override fun reconnect() = call("reconnect")
+    override fun reconnect(networkChanged: Boolean) = call("reconnect:$networkChanged")
     override fun chatsJson(archived: Boolean) = """{"chats":[
         {"jid":"c:1","name":"Maya","group":false,"archived":$archived,"pinned":true,"muted":false,"unread":2,"lastTs":5,
          "last":{"id":"m1","chat":"c:1","senderName":"Maya","fromMe":false,"ts":5,"kind":"text","text":"hi","reactions":[]}}],
@@ -166,6 +166,14 @@ class BridgeServiceTest {
         fun status(value: String) = json.message("""{"id":"m","chat":"c:1","fromMe":true,"ts":1,"kind":"text","text":"x","status":"$value","reactions":[]}""").receipt
         assertEquals(null, status("sending"))
         assertEquals(Receipt.State.FAILED, status("failed")?.state)
+    }
+
+    @Test
+    fun aNetworkChangeDropsTheConnectionEvenIfItLooksOpen() = runTest {
+        val service = service()
+        service.reconnect(networkChanged = true)
+        service.reconnect(networkChanged = false)
+        assertEquals(listOf("reconnect:true", "reconnect:false"), service.fake.calls)
     }
 
     @Test

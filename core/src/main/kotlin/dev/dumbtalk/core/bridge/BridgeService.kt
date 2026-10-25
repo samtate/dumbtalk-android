@@ -40,8 +40,11 @@ interface NativeBridge {
     /** {"phone": …} of the linked account. */
     fun accountJson(): String
     fun logout()
-    /** Connects (again) now if linked and not connected. */
-    fun reconnect()
+    /**
+     * Connects (again) now if linked and not connected. [networkChanged]:
+     * the network just changed, so drop a connection that looks open too.
+     */
+    fun reconnect(networkChanged: Boolean)
 
     fun chatsJson(archived: Boolean): String
     fun chatJson(chat: String): String
@@ -227,7 +230,7 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
 
     override suspend fun disconnect() = bridge { logout() }
 
-    override suspend fun reconnect(networkChanged: Boolean) = bridge { if (isLinked()) reconnect() }
+    override suspend fun reconnect(networkChanged: Boolean) = bridge { if (isLinked()) reconnect(networkChanged) }
 
     override suspend fun listConversations(archived: Boolean): ConversationPage {
         if (!bridge { isLinked() }) return ConversationPage(emptyList(), 0)

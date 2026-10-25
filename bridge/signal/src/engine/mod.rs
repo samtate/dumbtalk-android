@@ -309,6 +309,8 @@ struct Engine {
     expiring: Cell<bool>,
     /// Cuts short the wait between reconnection attempts.
     wake: tokio::sync::Notify,
+    /// Drops a connection that looks open, to reconnect on a new network.
+    restart: tokio::sync::Notify,
     /// Our messages waiting to be sent, in order: (chat, id).
     outbox: RefCell<std::collections::VecDeque<(String, String)>>,
     /// Whether the outbox is being worked through.
@@ -340,6 +342,7 @@ impl Engine {
             profiles_requested: RefCell::new(HashSet::new()),
             expiring: Cell::new(false),
             wake: tokio::sync::Notify::new(),
+            restart: tokio::sync::Notify::new(),
             outbox: RefCell::new(Default::default()),
             sending: Cell::new(false),
         })
@@ -390,8 +393,8 @@ impl Engine {
             }
             Command::Connect(reply) => send(reply, self.clone().connect().await.and_then(|_| ok())),
             Command::Logout(reply) => send(reply, self.logout().await.and_then(|_| ok())),
-            Command::Reconnect(reply) => {
-                self.reconnect();
+            Command::Reconnect { network_changed, reply } => {
+                self.reconnect(network_changed);
                 send(reply, ok())
             }
             Command::Chats { archived, reply } => send(reply, self.chats(archived).await),
@@ -723,12 +726,22 @@ impl Engine {
                 let Ok(mut manager) = self.manager() else {
                     break;
                 };
+                let mut restarted = false;
                 match manager.receive_messages().await {
                     Ok(stream) => {
                         backoff = Duration::from_secs(2);
                         pin_mut!(stream);
-                        while let Some(received) = stream.next().await {
-                            self.on_received(received).await;
+                        loop {
+                            tokio::select! {
+                                received = stream.next() => match received {
+                                    Some(received) => self.on_received(received).await,
+                                    None => break,
+                                },
+                                _ = self.restart.notified() => {
+                                    restarted = true;
+                                    break;
+                                }
+                            }
                         }
                     }
                     Err(error) => self.log(format!("receive failed: {error}")),
@@ -737,7 +750,7 @@ impl Engine {
                     self.emit("status", json!({}));
                 }
                 // Wait to retry, unless told the network is back.
-                if tokio::time::timeout(backoff, self.wake.notified()).await.is_ok() {
+                if restarted || tokio::time::timeout(backoff, self.wake.notified()).await.is_ok() {
                     backoff = Duration::from_secs(2);
                 } else {
                     backoff = (backoff * 2).min(Duration::from_secs(120));
@@ -747,9 +760,17 @@ impl Engine {
         });
     }
 
-    /// Retries the connection straight away if it's down.
-    fn reconnect(self: &Rc<Self>) {
-        if self.online.get() || self.manager.borrow().is_none() {
+    /// Retries the connection straight away if it's down. After a network
+    /// change an open-looking connection may be dead, so it's dropped and
+    /// opened again.
+    fn reconnect(self: &Rc<Self>, network_changed: bool) {
+        if self.manager.borrow().is_none() {
+            return;
+        }
+        if self.online.get() {
+            if network_changed {
+                self.restart.notify_one();
+            }
             return;
         }
         if self.receiving.get() {

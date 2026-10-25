@@ -114,7 +114,7 @@ private class RustBridge(private val client: SignalClient) : NativeBridge {
     override fun isOnline() = JSONObject(client.accountJson()).optBoolean("online")
     override fun accountJson(): String = client.accountJson()
     override fun logout() = client.logout()
-    override fun reconnect() = client.reconnect()
+    override fun reconnect(networkChanged: Boolean) = client.reconnect(networkChanged)
     override fun chatsJson(archived: Boolean): String = client.chatsJson(archived)
     override fun chatJson(chat: String): String = client.chatJson(chat)
     override fun messagesJson(chat: String, beforeTs: Long, beforeId: String, limit: Long): String =

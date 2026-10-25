@@ -178,6 +178,17 @@ func (c *Client) ConversationAvatar(chat string) (string, error) {
 	return path, nil
 }
 
+// Reconnect connects now if the connection is down. After a network change
+// (networkChanged) an open-looking connection may have died with the old
+// network, so it's dropped and whatsmeow opens a new one at once.
+func (c *Client) Reconnect(networkChanged bool) error {
+	if networkChanged && c.wa.IsConnected() {
+		c.wa.ResetConnection()
+		return nil
+	}
+	return c.Connect()
+}
+
 // Connect starts the connection for an already linked device.
 func (c *Client) Connect() error {
 	if !c.IsLinked() {
