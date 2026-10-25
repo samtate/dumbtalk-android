@@ -291,6 +291,7 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     )
 
     override suspend fun capabilities() = Capabilities(
+        retries = true,
         reactions = true,
         edits = true,
         deletes = true,
@@ -601,6 +602,12 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
         }
         val sent = send(conversation, content, replyTo)
         return synchronized(chat) { mapper.message(chat, sent) }
+    }
+
+    /** TDLib fails a message only on an error from Telegram, and a resend replaces the failed one. */
+    override suspend fun retryMessage(conversation: Conversation, message: Message) {
+        val resent = requireClient().send(TdApi.ResendMessages(chatId(conversation), longArrayOf(message.id.toLong()), null, 0))
+        if (resent.messages.firstOrNull() == null) throw TelegramException(0, "Telegram won't take this message again yet; try in a moment")
     }
 
     override suspend fun setTyping(conversation: Conversation, active: Boolean) {

@@ -55,8 +55,14 @@ interface NativeBridge {
     fun closePoll(chat: String, id: String) { throw BridgeException("Closing polls is unavailable") }
     fun searchJson(query: String): String
 
-    /** [spansJson]: mentions [{start, length, style: "mention", id}] over [text], or "". */
+    /**
+     * Stores the message and returns it at once (status "sending"); the
+     * bridge then tries once to send it. [spansJson]: mentions
+     * [{start, length, style: "mention", id}] over [text], or "".
+     */
     fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String
+    /** Sends a failed message again under its first id, so nobody gets it twice; returns it. */
+    fun retry(chat: String, id: String): String = throw BridgeException("Retrying is unavailable")
     /** The chat's other people: [{"id", "name", "admin"?, "pending"?}]. */
     fun membersJson(chat: String): String = "[]"
     fun setExpireTimer(chat: String, seconds: Int) { throw BridgeException("Disappearing messages are unavailable") }
@@ -208,6 +214,7 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
     }
 
     override suspend fun capabilities() = Capabilities(
+        retries = true,
         reactions = true,
         edits = true,
         deletes = true,
@@ -280,6 +287,10 @@ abstract class BridgeService(final override val id: ServiceId, protected val sco
             JSONObject().put("start", it.start).put("length", it.length).put("style", "mention").put("id", it.target)
         }).toString()
         return json.message(changeMessages(conversation) { sendText(conversation.remoteId, text, replyTo?.id.orEmpty(), encoded) })
+    }
+
+    override suspend fun retryMessage(conversation: Conversation, message: Message) {
+        changeMessages(conversation) { retry(conversation.remoteId, message.id) }
     }
 
     override suspend fun listMembers(conversation: Conversation): List<Member> =

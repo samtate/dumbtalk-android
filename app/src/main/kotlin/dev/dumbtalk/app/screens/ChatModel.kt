@@ -253,8 +253,11 @@ class ChatModel(
     }
 
     /**
-     * Sends the draft (or saves an edit). On failure the text, reply and
-     * edit come back so nothing typed is lost. [then] runs either way.
+     * Sends the draft (or saves an edit). Services store the message and
+     * return at once, then try once to send it: a failed send stays in the
+     * chat marked failed, to retry from its actions. An error here means
+     * nothing was stored, so the text, reply and edit come back and sending
+     * again can't duplicate it. [then] runs either way.
      */
     fun send(then: suspend () -> Unit = {}) {
         if (!canSend) return
@@ -316,7 +319,10 @@ class ChatModel(
     fun sendVoiceNote(path: String, mime: String, durationMillis: Long) =
         sendMedia { service.sendVoiceNote(conversation(), path, mime, durationMillis) }
 
+    /** Like [send]: one press, one message, even if pressed again while it's handed over. */
     private fun sendMedia(block: suspend () -> Unit) {
+        if (sending) return
+        sending = true
         scope.launch {
             runCatching { block() }
                 .onSuccess { sendError = null }
@@ -324,6 +330,7 @@ class ChatModel(
                     Log.w("Chat", "media send failed", failure)
                     sendError = "Not sent: ${failure.message ?: "unknown error"}"
                 }
+            sending = false
             load()
         }
     }
@@ -381,7 +388,7 @@ class ChatModel(
         load()
     }
 
-    fun retry(message: Message) = launch { service.retryMessage(conversation(), message); load() }
+    fun retry(message: Message) = act("Couldn't retry") { service.retryMessage(conversation(), message) }
 
     fun update(change: ConversationUpdate) = act("Couldn't change that") { service.updateConversation(conversation(), change) }
 

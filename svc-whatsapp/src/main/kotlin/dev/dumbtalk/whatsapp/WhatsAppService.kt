@@ -126,6 +126,7 @@ private class GoBridge(private val client: Client) : NativeBridge {
     override fun votePoll(chat: String, id: String, optionsJson: String) = client.votePoll(chat, id, optionsJson)
     override fun searchJson(query: String): String = client.searchJSON(query)
     override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String = client.sendText(chat, text, quoteId, spansJson)
+    override fun retry(chat: String, id: String): String = client.retry(chat, id)
     override fun membersJson(chat: String): String = client.membersJSON(chat)
     override fun setExpireTimer(chat: String, seconds: Int) = client.setExpireTimer(chat, seconds.toLong())
     override fun setBlocked(chat: String, blocked: Boolean) = client.setBlocked(chat, blocked)

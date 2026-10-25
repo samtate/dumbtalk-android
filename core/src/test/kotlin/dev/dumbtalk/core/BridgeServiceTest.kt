@@ -1,6 +1,7 @@
 package dev.dumbtalk.core
 
 import dev.dumbtalk.core.bridge.BridgeException
+import dev.dumbtalk.core.bridge.BridgeJson
 import dev.dumbtalk.core.bridge.BridgeService
 import dev.dumbtalk.core.bridge.NativeBridge
 import kotlinx.coroutines.CoroutineScope
@@ -52,6 +53,10 @@ private class FakeBridge : NativeBridge {
     override fun sendText(chat: String, text: String, quoteId: String, spansJson: String): String {
         call("send:$chat:$text:$quoteId")
         return """{"id":"m2","chat":"$chat","fromMe":true,"ts":6,"kind":"text","text":"$text","status":"sent","reactions":[]}"""
+    }
+    override fun retry(chat: String, id: String): String {
+        call("retry:$id")
+        return """{"id":"$id","chat":"$chat","fromMe":true,"ts":6,"kind":"text","text":"again","status":"sending","reactions":[]}"""
     }
     override fun react(chat: String, id: String, emoji: String, remove: Boolean) = call("react:$id:$emoji:$remove")
     override fun edit(chat: String, id: String, text: String) = call("edit:$id")
@@ -140,6 +145,27 @@ class BridgeServiceTest {
         assertEquals("send:c:1:hello:q", service.fake.calls.single())
         assertTrue(events.any { it is ServiceEvent.MessagesChanged && it.conversationId == chat.id })
         collector.cancel()
+    }
+
+    @Test
+    fun aFailedSendIsRetriedUnderItsOwnId() = runTest {
+        val service = service()
+        assertTrue(service.capabilities().retries)
+        val events = mutableListOf<ServiceEvent>()
+        val collector = launch(start = CoroutineStart.UNDISPATCHED) { service.events.toList(events) }
+        service.retryMessage(chat, Message("m2", chat.id, 6, Direction.OUTGOING, receipt = Receipt(Receipt.State.FAILED)))
+        advanceUntilIdle()
+        assertEquals("retry:m2", service.fake.calls.single())
+        assertTrue(events.any { it is ServiceEvent.MessagesChanged && it.conversationId == chat.id })
+        collector.cancel()
+    }
+
+    @Test
+    fun sendingAndFailedStatusesMapToTheClockAndFailure() = runTest {
+        val json = BridgeJson(ServiceId.WHATSAPP) { emptyList() }
+        fun status(value: String) = json.message("""{"id":"m","chat":"c:1","fromMe":true,"ts":1,"kind":"text","text":"x","status":"$value","reactions":[]}""").receipt
+        assertEquals(null, status("sending"))
+        assertEquals(Receipt.State.FAILED, status("failed")?.state)
     }
 
     @Test
