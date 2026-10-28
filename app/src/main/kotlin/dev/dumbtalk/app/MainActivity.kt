@@ -42,6 +42,10 @@ import dev.dumbtalk.app.screens.ServicesScreen
 import dev.dumbtalk.app.screens.SettingsScreen
 import dev.dumbtalk.app.screens.SetupScreen
 import dev.dumbtalk.app.sms.SmsWork
+import dev.dumbtalk.app.background.BackgroundStatus
+import dev.dumbtalk.app.screens.helpPages
+import dev.dumbtalk.app.ui.FirstRun
+import dev.dumbtalk.app.ui.PermissionItem
 import dev.dumbtalk.app.ui.DumbTalkTheme
 import dev.dumbtalk.app.ui.LocalSoftkeys
 import dev.dumbtalk.app.ui.Palette
@@ -56,6 +60,14 @@ class MainActivity : ComponentActivity() {
     private val softkeys = SoftkeyController()
     private val navigator = Navigator()
     private val permissions = BackgroundPermissions(this)
+    private var firstRun by mutableStateOf(false)
+
+    private fun firstRunPermissions() = listOf(
+        PermissionItem("Notifications", "New messages, as they arrive.", { BackgroundStatus.of(this).notifications }) { permissions.requestNotifications() },
+        PermissionItem("Run in the background", "Keeps your networks connected: they don't push to unofficial apps.", {
+            BackgroundStatus.of(this).let { it.unoptimised && !it.restricted }
+        }) { BackgroundStatus.fix(this, BackgroundStatus.of(this).copy(notifications = true)) },
+    )
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -64,7 +76,7 @@ class MainActivity : ComponentActivity() {
         // The welcome explains what the permission prompts are for, so they wait for it.
         when {
             maintenance != null -> navigator.replace(Screen.Backup(restore = maintenance == DumbTalkApp.Maintenance.RESTORE))
-            app.guidesUser && !app.welcomed && savedInstanceState == null -> navigator.push(Screen.Help(firstRun = true))
+            app.guidesUser && !app.welcomed && savedInstanceState == null -> firstRun = true
             else -> permissions.ask()
         }
         openFromNotification(intent)
@@ -80,6 +92,11 @@ class MainActivity : ComponentActivity() {
                             .imePadding(),
                     ) {
                         Box(Modifier.weight(1f).fillMaxWidth()) {
+                            if (firstRun) {
+                                // The welcome explains what the permissions are for, then lists them.
+                                FirstRun(helpPages(firstRun = true), firstRunPermissions()) { app.welcomed = true; firstRun = false }
+                                return@Box
+                            }
                             val saveable = rememberSaveableStateHolder()
                             val screen = navigator.current
                             LaunchedEffect(screen, resumed) { reportVisible(screen) }
@@ -93,11 +110,7 @@ class MainActivity : ComponentActivity() {
                                     is Screen.Setup -> SetupScreen(app, navigator, screen.serviceId)
                                     Screen.Search -> SearchScreen(app, navigator)
                                     Screen.Settings -> SettingsScreen(app, navigator)
-                                    is Screen.Help -> HelpScreen(navigator, screen.firstRun) {
-                                        app.welcomed = true
-                                        navigator.pop()
-                                        permissions.ask()
-                                    }
+                                    Screen.Help -> HelpScreen(navigator)
                                     Screen.About -> AboutScreen(navigator)
                                     is Screen.Backup -> BackupScreen(app, screen.restore)
                                     Screen.NewMessage -> NewMessageScreen(app, navigator)
@@ -117,6 +130,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        softkeys.refresh(this)
         resumed = true
         val app = application as DumbTalkApp
         app.registry.setForeground(true)

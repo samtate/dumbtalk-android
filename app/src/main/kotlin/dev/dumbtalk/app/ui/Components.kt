@@ -1,7 +1,10 @@
+// Shared Dumb UI kit: generated from dumb-kit/ui/Components.kt by sync.py. Edit it there.
 package dev.dumbtalk.app.ui
 
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.net.Uri
+import android.util.Size
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,6 +24,7 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.foundation.text.BasicTextField
@@ -36,6 +40,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.withFrameNanos
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,6 +62,7 @@ import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.onClick
 import androidx.compose.ui.semantics.semantics
@@ -70,10 +76,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import dev.dumbtalk.core.ServiceId
 import java.io.File
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+
+/** Background controls are inert while a composer popover owns focus. */
+val LocalControlsEnabled = staticCompositionLocalOf { true }
 
 /**
  * The D-pad focus treatment used everywhere: a card that draws a solid white
@@ -85,9 +93,6 @@ import kotlinx.coroutines.withContext
  * in touch mode, and a touchscreen keypad phone starts in touch mode, so
  * initial focus requests would silently fail. `focusable` always accepts it.
  */
-/** Background controls are inert while a composer popover owns focus. */
-val LocalControlsEnabled = staticCompositionLocalOf { true }
-
 @Composable
 fun Modifier.focusCard(
     onClick: () -> Unit,
@@ -179,47 +184,69 @@ fun Header(title: String, modifier: Modifier = Modifier, leading: @Composable ((
     Box(Modifier.fillMaxWidth().height(1.dp).background(Palette.line))
 }
 
-/** A small outlined label, e.g. a service name in a header. */
+/** A small outlined label, e.g. a count or a service name in a header. */
 @Composable
-fun Pill(text: String) {
+fun Pill(text: String, color: Color = Palette.time) {
     BasicText(
         text.uppercase(),
-        style = Type.small,
+        style = Type.small.copy(color = color),
         modifier = Modifier
-            .border(1.dp, Palette.line, Square)
+            .border(1.dp, if (color == Palette.time) Palette.line else color, Square)
             .padding(horizontal = 4.dp, vertical = 1.dp),
     )
 }
 
+/**
+ * Up to two initials from words that start with a letter or digit (emoji and
+ * symbols are skipped); "#" for a bare number, "?" for anything else.
+ */
+fun initials(value: String): String {
+    val words = value.split(Regex("\\s+"))
+    val letters = words.mapNotNull { word -> word.firstOrNull()?.takeIf { it.isLetter() }?.uppercaseChar() }
+    if (letters.isNotEmpty()) return letters.take(2).joinToString("")
+    return if (value.any { it.isDigit() }) "#" else "?"
+}
 
-/** Up to two initials from words that start with a letter or digit (emoji and symbols are skipped). */
-fun initials(value: String): String =
-    value.split(Regex("\\s+"))
-        .mapNotNull { word -> word.firstOrNull()?.takeIf { it.isLetterOrDigit() }?.uppercaseChar() }
-        .take(2)
-        .joinToString("")
-        .ifEmpty { "?" }
+/** A contact's photo (a content URI), or their initials in their tint. */
+@Composable
+fun Avatar(title: String, photoUri: String?, size: Dp = 34.dp) {
+    val context = LocalContext.current
+    val bitmap by produceState<Bitmap?>(null, photoUri) {
+        value = if (photoUri.isNullOrBlank()) null else withContext(Dispatchers.IO) {
+            runCatching { context.contentResolver.loadThumbnail(Uri.parse(photoUri), Size(256, 256), null) }.getOrNull()
+        }
+    }
+    AvatarBox(title, bitmap, size, unread = 0, noteToSelf = false)
+}
 
-
+/** A chat's picture (a local file), or initials, with its unread count. */
 @Composable
 fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean = false, imagePath: String? = null) {
-    val tint = if (noteToSelf) Palette.text else avatarTint(title)
     val bitmap by produceState<Bitmap?>(null, imagePath) {
         value = if (imagePath.isNullOrBlank()) null else withContext(Dispatchers.IO) {
             runCatching { BitmapFactory.decodeFile(File(imagePath).absolutePath) }.getOrNull()
         }
     }
+    AvatarBox(title, bitmap, size, unread, noteToSelf)
+}
+
+@Composable
+private fun AvatarBox(title: String, bitmap: Bitmap?, size: Dp, unread: Int, noteToSelf: Boolean) {
+    val tint = if (noteToSelf) Palette.text else avatarTint(title)
     Box(Modifier.size(size)) {
         Box(
             Modifier.size(size).clip(Square).border(1.dp, tint.copy(alpha = 0.6f), Square),
             contentAlignment = Alignment.Center,
         ) {
             if (bitmap != null && !noteToSelf) {
-                Image(bitmap!!.asImageBitmap(), contentDescription = null, modifier = Modifier.size(size), contentScale = ContentScale.Crop)
+                Image(bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.size(size), contentScale = ContentScale.Crop)
             } else if (noteToSelf) {
-                PixelIcon(PixelArt.PENCIL, size * 0.55f, tint)
+                Icon(AppIcon.EDIT, size = size * 0.55f, color = tint)
             } else {
-                BasicText(initials(title), style = Type.centered(Type.bold(Type.label.copy(color = tint))))
+                BasicText(
+                    initials(title),
+                    style = Type.centered(Type.bold(Type.label.copy(color = tint, fontSize = Type.label.fontSize * (size / 34.dp).coerceAtMost(2.5f)))),
+                )
             }
         }
         // Unread count as an inverted block, like a lit display segment.
@@ -242,7 +269,7 @@ fun Avatar(title: String, unread: Int = 0, size: Dp = 34.dp, noteToSelf: Boolean
     }
 }
 
-/** The two-column icon tiles used by the main and chat option menus. */
+/** The two-column icon tiles used by option menus. */
 @Composable
 fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null) {
     Row(
@@ -269,6 +296,7 @@ fun ListButton(
     leading: @Composable (() -> Unit)? = null,
     trailing: @Composable (() -> Unit)? = null,
     highlightFocus: Boolean = false,
+    onFocused: (() -> Unit)? = null,
 ) {
     var focused by remember { mutableStateOf(false) }
     val inverted = highlightFocus && focused
@@ -277,7 +305,8 @@ fun ListButton(
             .fillMaxWidth()
             .padding(horizontal = 5.dp, vertical = 2.dp)
             .onFocusChanged { focused = it.isFocused }
-            .focusCard(onClick, background = if (inverted) SolidColor(Palette.focus) else Palette.tile, focusRequester = focusRequester, idleBorder = Palette.tileBorder)
+            .focusCard(onClick, background = if (inverted) SolidColor(Palette.focus) else Palette.tile, focusRequester = focusRequester,
+                onFocused = onFocused, idleBorder = Palette.tileBorder)
             .heightIn(min = 36.dp)
             .padding(horizontal = 8.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -287,7 +316,7 @@ fun ListButton(
             Spacer(Modifier.width(8.dp))
         }
         Column(Modifier.weight(1f)) {
-            BasicText(title, style = Type.label.copy(color = if (inverted) Palette.background else Palette.text), maxLines = 1, overflow = TextOverflow.Ellipsis)
+            BasicText(title.forDisplay(), style = Type.label.copy(color = if (inverted) Palette.background else Palette.text), maxLines = 1, overflow = TextOverflow.Ellipsis)
             if (description != null) BasicText(description, style = Type.preview.copy(color = if (inverted) Palette.background else Palette.muted), maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
         trailing?.invoke()
@@ -408,4 +437,94 @@ fun CenteredMessage(text: String, modifier: Modifier = Modifier, color: Color = 
     Box(modifier.fillMaxWidth().padding(16.dp), contentAlignment = Alignment.Center) {
         BasicText(text, style = Type.body.copy(color = color, textAlign = TextAlign.Center))
     }
+}
+
+class MenuItem(val label: String, val icon: AppIcon, val onClick: () -> Unit)
+
+/** Two-column tile grid; the first tile takes [requester]. */
+@Composable
+fun MenuGrid(items: List<MenuItem>, requester: FocusRequester? = null) {
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        items.chunked(2).forEachIndexed { row, pair ->
+            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                pair.forEachIndexed { column, item ->
+                    MenuTile(item.label, item.icon, item.onClick, Modifier.weight(1f),
+                        focusRequester = if (row == 0 && column == 0) requester else null)
+                }
+                if (pair.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+/** A settings row with a current value and an optional explanation. */
+@Composable
+fun SettingRow(
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    value: String? = null,
+    description: String? = null,
+    focusRequester: FocusRequester? = null,
+) {
+    Column(
+        modifier.fillMaxWidth()
+            .padding(horizontal = 5.dp, vertical = 2.dp)
+            .focusCard(
+                onClick,
+                background = Palette.tile,
+                focusRequester = focusRequester,
+                idleBorder = Palette.tileBorder,
+            )
+            .heightIn(min = 36.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Row(
+            Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+        ) {
+            BasicText(
+                title.forDisplay(),
+                style = Type.label,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f),
+            )
+            if (value != null) BasicText(
+                value,
+                style = Type.section.copy(color = Palette.text, textAlign = TextAlign.End),
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.widthIn(max = 120.dp),
+            )
+        }
+        if (description != null) BasicText(
+            description,
+            style = Type.preview,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+        )
+    }
+}
+
+/** Focuses [requester] once the screen has drawn, and again whenever [key] changes. */
+@Composable
+fun FocusOnStart(requester: FocusRequester, key: Any? = Unit) {
+    LaunchedEffect(key) {
+        withFrameNanos { }
+        runCatching { requester.requestFocus() }
+    }
+}
+
+/** A small heading above a group of rows. */
+@Composable
+fun SectionTitle(text: String, modifier: Modifier = Modifier) {
+    BasicText(text.uppercase(), style = Type.section, modifier = modifier.padding(start = 10.dp, top = 10.dp, bottom = 4.dp))
+}
+
+@Composable
+fun ErrorText(text: String, modifier: Modifier = Modifier) {
+    BasicText(text, style = Type.small.copy(color = Palette.error), modifier = modifier.padding(horizontal = 10.dp, vertical = 4.dp))
 }

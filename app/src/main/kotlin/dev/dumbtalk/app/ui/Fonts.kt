@@ -1,3 +1,4 @@
+// Shared Dumb UI kit: generated from dumb-kit/ui/Fonts.kt by sync.py. Edit it there.
 package dev.dumbtalk.app.ui
 
 import android.content.Context

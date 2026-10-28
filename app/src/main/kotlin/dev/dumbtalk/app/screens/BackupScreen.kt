@@ -26,6 +26,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.backup.Backups
+import dev.dumbtalk.app.ui.Cell
+import dev.dumbtalk.app.ui.Table
+import dev.dumbtalk.app.ui.Hint
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
 import dev.dumbtalk.app.ui.Palette

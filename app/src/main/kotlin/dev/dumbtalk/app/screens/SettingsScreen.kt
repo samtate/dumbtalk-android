@@ -29,6 +29,7 @@ import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.Screen
 import dev.dumbtalk.app.background.BackgroundStatus
 import dev.dumbtalk.app.background.DebugLog
+import dev.dumbtalk.app.ui.LeftKeySetting
 import dev.dumbtalk.app.ui.Header
 import dev.dumbtalk.app.ui.ListButton
 import dev.dumbtalk.app.ui.SoftkeyAction
@@ -74,7 +75,8 @@ fun SettingsScreen(app: DumbTalkApp, navigator: Navigator) {
             SettingRow("Services", "Signal, Telegram, WhatsApp and SMS") { navigator.push(Screen.Services) }
             SettingRow("Background delivery", background.summary) { BackgroundStatus.fix(context, background) }
             if (!background.ok) BasicText("Select to fix it in Android's settings.", style = Type.small)
-            SettingRow("Keys & help", "How to use DumbTalk with a keypad") { navigator.push(Screen.Help()) }
+            SettingRow("Keys & help", "How to use DumbTalk with a keypad") { navigator.push(Screen.Help) }
+            LeftKeySetting()
             SettingRow("Back up", "An encrypted copy of your chats and accounts") {
                 app.restartFor(context as Activity, DumbTalkApp.Maintenance.BACKUP)
             }

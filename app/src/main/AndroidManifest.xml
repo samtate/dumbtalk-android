@@ -36,6 +36,23 @@
         </intent>
     </queries>
 
+    <!-- Sibling Dumb apps, whose shared choices (the left key) this app adopts. -->
+    <queries>
+        <package android:name="dev.dumbcamera.app" />
+        <package android:name="dev.dumbcamera.app.debug" />
+        <package android:name="dev.dumbclock.app" />
+        <package android:name="dev.dumbclock.app.debug" />
+        <package android:name="dev.dumbcontacts.app" />
+        <package android:name="dev.dumbcontacts.app.debug" />
+        <package android:name="dev.dumbhome.app" />
+        <package android:name="dev.dumbhome.app.debug" />
+        <package android:name="dev.dumbmail.app" />
+        <package android:name="dev.dumbmail.app.debug" />
+        <package android:name="dev.dumbphone.app" />
+        <package android:name="dev.dumbphone.app.debug" />
+        <package android:name="dev.dumbsparky.app" />
+        <package android:name="dev.dumbsparky.app.debug" />
+    </queries>
     <application
         android:name=".DumbTalkApp"
         android:allowBackup="false"
@@ -128,6 +145,10 @@
                 <action android:name="android.intent.action.BOOT_COMPLETED" />
                 <action android:name="android.intent.action.MY_PACKAGE_REPLACED" />
             </intent-filter>
+        </receiver>
+        <provider android:name="dev.dumbtalk.app.ui.FamilyProvider" android:authorities="${applicationId}.family" android:exported="true" />
+        <receiver android:name="dev.dumbtalk.app.ui.FamilyReceiver" android:exported="true">
+            <intent-filter><action android:name="dev.dumb.family.CHANGED" /></intent-filter>
         </receiver>
     </application>
 </manifest>

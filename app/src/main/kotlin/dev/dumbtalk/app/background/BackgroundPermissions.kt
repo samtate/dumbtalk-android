@@ -4,12 +4,13 @@ import android.Manifest
 import android.app.ActivityManager
 import android.content.Context
 import android.content.Intent
-import android.content.pm.PackageManager
 import android.net.Uri
+import android.os.Build
 import android.os.PowerManager
 import android.provider.Settings
 import androidx.activity.ComponentActivity
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.core.app.NotificationManagerCompat
 
 /** What background delivery needs from Android, and what's missing. */
 data class BackgroundStatus(
@@ -32,7 +33,8 @@ data class BackgroundStatus(
 
     companion object {
         fun of(context: Context): BackgroundStatus = BackgroundStatus(
-            notifications = context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED,
+            // Before Android 13 there's no permission to grant, but notifications can still be switched off.
+            notifications = NotificationManagerCompat.from(context).areNotificationsEnabled(),
             unoptimised = context.getSystemService(PowerManager::class.java).isIgnoringBatteryOptimizations(context.packageName),
             restricted = context.getSystemService(ActivityManager::class.java).isBackgroundRestricted,
         )
@@ -63,14 +65,31 @@ data class BackgroundStatus(
 class BackgroundPermissions(private val activity: ComponentActivity) {
     // Lazy: the activity has no context yet when this is created.
     private val prefs by lazy { activity.getSharedPreferences("setup", Context.MODE_PRIVATE) }
+    private var thenBattery = true
     private val notifications = activity.registerForActivityResult(ActivityResultContracts.RequestPermission()) {
-        askForBatteryExemption()
+        if (thenBattery) askForBatteryExemption()
+    }
+
+    /** Asks for notifications alone (the first run lists battery separately). */
+    fun requestNotifications() {
+        val status = BackgroundStatus.of(activity)
+        if (status.notifications) return
+        prefs.edit().putBoolean(ASKED_NOTIFICATIONS, true).apply()
+        if (Build.VERSION.SDK_INT >= 33 && !prefs.getBoolean(DENIED_ONCE, false)) {
+            thenBattery = false
+            prefs.edit().putBoolean(DENIED_ONCE, true).apply()
+            notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
+        } else {
+            // Turned off, or asked before: only Settings can switch it back on.
+            BackgroundStatus.fix(activity, status.copy(unoptimised = true, restricted = false))
+        }
     }
 
     fun ask() {
         val status = BackgroundStatus.of(activity)
-        if (!status.notifications && !prefs.getBoolean(ASKED_NOTIFICATIONS, false)) {
+        if (!status.notifications && !prefs.getBoolean(ASKED_NOTIFICATIONS, false) && Build.VERSION.SDK_INT >= 33) {
             prefs.edit().putBoolean(ASKED_NOTIFICATIONS, true).apply()
+            thenBattery = true
             notifications.launch(Manifest.permission.POST_NOTIFICATIONS)
         } else {
             askForBatteryExemption()
@@ -88,6 +107,7 @@ class BackgroundPermissions(private val activity: ComponentActivity) {
 
     private companion object {
         const val ASKED_NOTIFICATIONS = "asked-notifications"
+        const val DENIED_ONCE = "notifications-dialog-shown"
         const val ASKED_BATTERY_AT = "asked-battery-at"
         const val DAY = 24 * 60 * 60 * 1000L
     }

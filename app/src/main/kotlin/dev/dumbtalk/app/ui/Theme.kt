@@ -1,3 +1,4 @@
+// Shared Dumb UI kit: generated from dumb-kit/ui/Theme.kt by sync.py. Edit it there.
 package dev.dumbtalk.app.ui
 
 import androidx.compose.foundation.text.selection.LocalTextSelectionColors
@@ -62,6 +63,9 @@ object Type {
     val small = dot.copy(color = Palette.time, fontSize = 12.sp, lineHeight = 14.sp)
     val softkey = dotBold.copy(fontSize = 13.sp)
     val section = dotBold.copy(color = Palette.muted, fontSize = 12.sp)
+    /** The number being dialled, and the caller on the call screen. */
+    val display = dot.copy(fontSize = 30.sp, lineHeight = 34.sp)
+    val caller = dotBold.copy(fontSize = 22.sp, lineHeight = 26.sp)
 
     /**
      * For text centred in a box: drops the font's built-in padding and the
