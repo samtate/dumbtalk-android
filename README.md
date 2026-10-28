@@ -1,7 +1,8 @@
 # DumbTalk for Android
 
 Signal, Telegram, WhatsApp and SMS in one inbox, built for Android keypad phones and driven
-entirely with the D-pad. Every messaging network runs on the phone itself: there's no server, no
+entirely with the D-pad. Use it as your **default SMS app**, with everyday texts beside your
+Signal, Telegram and WhatsApp chats. Every messaging network runs on the phone itself: there's no server, no
 account with us and no tracking.
 
 > **Status: early.** Daily use works on all three networks (text, replies, reactions, edits,
@@ -16,12 +17,12 @@ Part of the Dumb family of keypad apps: [DumbPhone](https://github.com/samtate/d
   <tr>
     <td align="center"><img src="docs/screenshots/inbox.png" width="200"><br><sub>Unified inbox</sub></td>
     <td align="center"><img src="docs/screenshots/chat.png" width="200"><br><sub>Conversation</sub></td>
-    <td align="center"><img src="docs/screenshots/message-actions.png" width="200"><br><sub>Message actions</sub></td>
+    <td align="center"><img src="docs/screenshots/sms.png" width="200"><br><sub>SMS conversation</sub></td>
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/menu.png" width="200"><br><sub>Menu</sub></td>
     <td align="center"><img src="docs/screenshots/services.png" width="200"><br><sub>Services</sub></td>
-    <td align="center"><img src="docs/screenshots/setup-qr.png" width="200"><br><sub>Linking</sub></td>
+    <td align="center"><img src="docs/screenshots/message-actions.png" width="200"><br><sub>Message actions</sub></td>
   </tr>
 </table>
 
@@ -39,7 +40,10 @@ also works by touch on ordinary phones.
 3. Open DumbTalk. It asks which key opens menus (once for every Dumb app), a short welcome
    explains the keys, then it asks to allow notifications and to run in the background.
    Allow both, or messages arrive late.
-4. Choose **Connect a service**, or **Try the demo** to try the keys with made-up chats first.
+4. Choose **Connect a service**, or **Try the demo** to try all four services, including SMS,
+   with made-up chats first. The demo never sends real texts or changes your default SMS app.
+5. To use real SMS, open **Settings → Services → SMS → Make default SMS app** and accept
+   Android's role and permission prompts. Signal, Telegram and WhatsApp are linked separately.
 
 ## Keys
 
@@ -59,10 +63,32 @@ In a chat the newest message starts selected: Centre gives it a quick 👍, ◀ 
 the phone's keypad keyboard (such as TT9); Centre sends once there's text, and Back leaves the
 text box. **◀ Menu → Settings → Keys & help** shows the keys on the phone.
 
+## SMS: your phone's text messages
+
+DumbTalk can be your default SMS app: **Settings → Services → SMS → Make default SMS app**.
+Your existing texts then appear in the same inbox as Signal, Telegram and WhatsApp, with an SMS
+badge so you can tell them apart. SMS uses your phone's mobile service and default SMS SIM;
+you don't need to link an account. Your carrier's usual text charges apply.
+
+- Read existing texts, start a conversation and send plain text, including long and Unicode messages.
+- Search texts, mute conversations and delete messages or conversations.
+- Get incoming-message notifications with **Reply** and **Mark read** actions.
+- See sent, delivered and failed states, and retry a failed text. SMS has no read receipts.
+
+Your texts stay in **Android's message store**, so choosing another default SMS app later keeps
+them. They aren't included in DumbTalk's encrypted backups. **MMS and RCS aren't supported**;
+SMS doesn't have photo attachments, reactions, quoted replies or group chat features.
+
+Incoming SMS is handled by a small separate process that doesn't start the other networks.
+Messages that arrive before the phone is first unlocked are kept until it is.
+
+**Try it safely:** the demo includes made-up SMS conversations alongside the three messaging
+networks. Demo texts stay in memory and never reach a SIM, a carrier or your real message store.
+
 ## Linking accounts
 
-DumbTalk links to your existing accounts as an extra device, the way the desktop apps do. Your main
-phone stays the main device.
+For Signal, Telegram and WhatsApp, DumbTalk links to your existing accounts as an extra device,
+the way the desktop apps do. Your main phone stays the main device.
 
 - **Signal** links only by scanning a QR code, by design. If Signal (or Molly) is on the same
   phone, show the code on another screen and scan it from there. Signal doesn't copy old messages
@@ -86,8 +112,8 @@ Things to know:
 
 ## Sending
 
-A message appears in the chat the moment you send it, with a clock, and DumbTalk sends it once
-in the background, in order. If it can't be sent it stays in the chat with a red **!** and the
+For Signal, Telegram and WhatsApp, a message appears in the chat the moment you send it, with a
+clock, and DumbTalk sends it once in the background, in order. If it can't be sent it stays in the chat with a red **!** and the
 reason; **◀ → Retry send** sends it again under the same ID, so if the first attempt got through
 after all, nobody sees it twice. While a network is offline the chat says so, and messages wait
 (up to five minutes) for the connection instead of failing.
@@ -118,29 +144,20 @@ screen (or in Settings). Then **remove DumbTalk from the old phone**: the same l
 running on two phones breaks its WhatsApp and Signal sessions. SMS isn't in backups; it stays in
 Android's own message store.
 
-## SMS
-
-Open **◀ Menu → Settings → Services → SMS → Make default SMS app** and accept Android's prompts.
-Your SMS messages stay in Android's own message store, so switching default SMS app later keeps
-them. DumbTalk supports plain text (including long and Unicode messages), notifications, search and
-sent/delivered/failed states, using the default SMS SIM. MMS and RCS aren't supported.
-
-Incoming SMS is handled by a small separate process that doesn't start the other networks, and
-messages that arrive before the phone is first unlocked are kept until it is.
-
 ## Privacy
 
 - Each network runs on the phone: Signal through [presage](https://github.com/whisperfish/presage),
   Telegram through [TDLib](https://github.com/tdlib/td) and WhatsApp through
-  [whatsmeow](https://github.com/tulir/whatsmeow). DumbTalk talks only to those networks.
-- Messages, media and keys stay in DumbTalk's private app storage. Android backup is turned off
+  [whatsmeow](https://github.com/tulir/whatsmeow). SMS uses Android's telephony APIs and your SIM.
+- Signal, Telegram and WhatsApp messages, media and keys stay in DumbTalk's private app storage.
+  SMS stays in Android's message store. Android backup is turned off
   so they're never copied off the phone.
 - There's no analytics or crash reporting. **Settings → Share debug log** sends a log only when
   you choose to; it can contain names and numbers, so read it before posting it publicly.
 
 ## Staying connected
 
-None of these networks will push messages to an unofficial app, so DumbTalk keeps one connection
+Signal, Telegram and WhatsApp do not push messages to DumbTalk, so DumbTalk keeps one connection
 per network open in a foreground service (the ongoing "DumbTalk" notification). It reconnects when
 the network changes, checks every 15 minutes even in Doze, and checks again whenever you open the
 app.
@@ -155,23 +172,25 @@ If messages arrive late:
 
 ## What works
 
-| | Signal | Telegram | WhatsApp |
-| --- | --- | --- | --- |
-| Text, replies, reactions, edits, deletes | ✅ | ✅ | ✅ |
-| Photos, videos, stickers, voice notes, files | ✅ | ✅ | ✅ |
-| Search, contacts, new chats, mute, archive | ✅ | ✅ | ✅ |
-| Old messages after linking | ❌ (Signal's design) | ✅ | ✅ (recent, from your phone) |
-| Pinned messages | ✅ ¹ | ✅ | ✅ ¹ |
-| Polls | ✅ ¹ | ✅ | ✅ ¹ |
-| Mentions, formatting, disappearing messages | ✅ ¹ | ✅ ¹ | ✅ ¹ |
-| Message requests, blocking | ✅ ¹ | ✅ ¹ | blocking only ¹ |
-| Groups: create, rename, add, remove, leave | ✅ ¹ | ✅ ¹ | ✅ ¹ |
-| Online / last seen | ❌ (not shared) | ✅ | ✅ ¹ |
-| Who read it, and when (groups too) | ✅ ¹ | read only | ✅ ¹ |
-| Calls | ❌ | ❌ | ❌ |
+| | Signal | Telegram | WhatsApp | SMS |
+| --- | --- | --- | --- | --- |
+| Plain text | ✅ | ✅ | ✅ | ✅ |
+| Quoted replies, reactions, edits | ✅ | ✅ | ✅ | ❌ |
+| Delete messages | ✅ | ✅ | ✅ | ✅ (local) |
+| Photos, videos, stickers, voice notes, files | ✅ | ✅ | ✅ | ❌ |
+| Search, contacts, new chats, mute, archive | ✅ | ✅ | ✅ | search, new texts, mute; no archive |
+| Old messages after linking | ❌ (Signal's design) | ✅ | ✅ (recent, from your phone) | ✅ (Android's SMS store) |
+| Pinned messages | ✅ ¹ | ✅ | ✅ ¹ | ❌ |
+| Polls | ✅ ¹ | ✅ | ✅ ¹ | ❌ |
+| Mentions, formatting, disappearing messages | ✅ ¹ | ✅ ¹ | ✅ ¹ | ❌ |
+| Message requests, blocking | ✅ ¹ | ✅ ¹ | blocking only ¹ | ❌ |
+| Groups: create, rename, add, remove, leave | ✅ ¹ | ✅ ¹ | ✅ ¹ | ❌ |
+| Online / last seen | ❌ (not shared) | ✅ | ✅ ¹ | ❌ |
+| Who read it, and when (groups too) | ✅ ¹ | read only | ✅ ¹ | delivery status only |
+| Calls | ❌ | ❌ | ❌ | ❌ |
 
-¹ Built but not yet tested with a real account. Forwarding works between any chats on any
-network. See [docs/plan.md](docs/plan.md) for details and what's next.
+¹ Built but not yet tested with a real account. Forward messages between Signal, Telegram and
+WhatsApp chats, or forward their text to SMS. See [docs/plan.md](docs/plan.md) for details and what's next.
 
 ## Reporting a problem
 
@@ -209,8 +228,16 @@ telegram.api_id=12345678
 telegram.api_hash=0123456789abcdef0123456789abcdef
 ```
 
-The screenshots above come from the Robolectric keypad test (`KeypadFlowTest`), which drives the
-app with hardware key events at the test phone's screen size.
+The screenshots above use made-up data from all four demo services. `KeypadFlowTest` drives
+both messaging and SMS flows with hardware key events at 640×960. Refresh them with:
+
+```sh
+./gradlew :app:testDebugUnitTest --tests '*KeypadFlowTest' -Proborazzi.test.record=true
+```
+
+A separate **DumbTalk DEMO** APK (`dev.dumbtalk.app.demo`) installs beside the real app:
+`./gradlew :app:assembleDemo`. All four services use in-memory demo data; no accounts,
+SMS permissions or default-app changes are needed.
 
 ### Releases
 

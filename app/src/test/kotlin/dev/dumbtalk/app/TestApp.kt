@@ -15,7 +15,7 @@ open class TestApp : DumbTalkApp() {
         restarts++
     }
 
-    override fun createServices(): List<MessagingService> = ServiceId.entries.filter { it != ServiceId.SMS }.map { DemoService(it, scope) }
+    override fun createServices(): List<MessagingService> = ServiceId.entries.map { DemoService(it, scope) }
 }
 
 /** A first run: the welcome comes before the inbox. */

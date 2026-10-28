@@ -10,6 +10,22 @@ import org.junit.Test
 
 class KeypadFlowTest : KeypadTest() {
     @Test
+    fun smsDemoWalkthrough() {
+        waitFor("Dentist")
+        compose.onNode(hasText("Dentist")).requestFocus()
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("Please arrive ten minutes early.")
+        shoot("sms")
+        press(KeyEvent.KEYCODE_DPAD_DOWN)
+        compose.onNode(hasSetTextAction()).performTextInput("See you tomorrow.")
+        waitFor("SEND")
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
+        waitFor("See you tomorrow.")
+        val app = compose.activity.application as DumbTalkApp
+        check(app.registry.byId(dev.dumbtalk.core.ServiceId.SMS) is dev.dumbtalk.core.demo.DemoService)
+    }
+
+    @Test
     fun keypadWalkthrough() {
         waitFor("Maya Chen")
         shoot("inbox")

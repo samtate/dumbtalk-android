@@ -94,7 +94,7 @@ open class DumbTalkApp : Application() {
 
     /** The messaging services, in inbox order. Tests swap in demo services. */
     protected open fun createServices(): List<MessagingService> {
-        if (demo) return ServiceId.entries.filter { it != ServiceId.SMS }.map { DemoService(it, scope) }
+        if (demo) return ServiceId.entries.map { DemoService(it, scope) }
         val device = "DumbTalk (${Build.MODEL})"
         return listOf(
             SignalService(this, File(filesDir, "signal"), device, scope),

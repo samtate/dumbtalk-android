@@ -113,7 +113,7 @@ private fun NoServices(app: DumbTalkApp, navigator: Navigator) {
     LaunchedEffect(Unit) { requester.focusAfterFrame() }
     Column(Modifier.fillMaxWidth().padding(vertical = 16.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         Image(painterResource(R.drawable.dumbtalk_logo), null, Modifier.size(56.dp).clip(Square))
-        CenteredMessage("Connect Signal, Telegram or WhatsApp to start.")
+        CenteredMessage("Enable SMS or connect Signal, Telegram or WhatsApp to start.")
         ListButton("Connect a service", { navigator.push(Screen.Services) }, focusRequester = requester)
         ListButton("Try the demo", { app.restartWithDemo(activity, true) }, description = "Made-up chats, to try the keys first")
         ListButton("Restore from backup", { app.restartFor(activity, DumbTalkApp.Maintenance.RESTORE) }, description = "Moving from another phone")

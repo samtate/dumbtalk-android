@@ -45,7 +45,7 @@ class DemoService(
     private val mutableEvents = MutableSharedFlow<ServiceEvent>(extraBufferCapacity = 1024)
     override val events: SharedFlow<ServiceEvent> = mutableEvents
 
-    private var connected = id != ServiceId.SMS
+    private var connected = true
     private val conversations = linkedMapOf<String, Conversation>()
     private val messages = mutableMapOf<String, MutableList<Message>>()
     private var nextId = 1
@@ -54,7 +54,7 @@ class DemoService(
         ServiceId.SIGNAL -> "+15550100000"
         ServiceId.TELEGRAM -> "Demo User"
         ServiceId.WHATSAPP -> "+15550100999"
-        ServiceId.SMS -> "SMS"
+        ServiceId.SMS -> "Demo SMS"
     }
 
     init {
@@ -63,7 +63,9 @@ class DemoService(
 
     override suspend fun status() = ServiceStatus(id, connected = connected, ready = true, accountLabel = account.takeIf { connected })
 
-    override suspend fun capabilities() = Capabilities(
+    override suspend fun capabilities() = if (id == ServiceId.SMS) {
+        Capabilities(deletes = true, search = true, compose = true, muting = true, replies = false, retries = true, deleteConversations = true)
+    } else Capabilities(
         reactions = true,
         edits = true,
         deletes = true,
@@ -86,7 +88,7 @@ class DemoService(
         ServiceId.SIGNAL -> qrStep()
         ServiceId.TELEGRAM -> SetupStep.Input("api-id", "Telegram API ID", "Create an app at my.telegram.org and enter its API ID.", SetupStep.Input.Field.API_ID, placeholder = "12345678")
         ServiceId.WHATSAPP -> methodChoice()
-        ServiceId.SMS -> SetupStep.Complete("SMS", "SMS uses the Android default SMS app role.")
+        ServiceId.SMS -> SetupStep.Complete("Demo SMS", "These messages are made up. No SMS permissions, default app change or SIM is needed.")
     }
 
     override suspend fun advanceSetup(step: SetupStep, value: String?): SetupStep {
@@ -189,9 +191,9 @@ class DemoService(
         delay(replyDelayMillis / 3)
         editMessage(conversation.id, sent.id) { it.copy(receipt = Receipt(Receipt.State.DELIVERED)) }
         val responder = conversation.members.firstOrNull()?.name ?: conversation.title
-        update(conversation.id) { it.copy(typingNames = listOf(responder)) }
+        if (id != ServiceId.SMS) update(conversation.id) { it.copy(typingNames = listOf(responder)) }
         delay(replyDelayMillis)
-        editMessage(conversation.id, sent.id) { it.copy(receipt = Receipt(Receipt.State.READ)) }
+        if (id != ServiceId.SMS) editMessage(conversation.id, sent.id) { it.copy(receipt = Receipt(Receipt.State.READ)) }
         val reply = lock.withLock {
             conversations[conversation.id] = conversations.getValue(conversation.id).let {
                 it.copy(typingNames = emptyList(), unreadCount = it.unreadCount + 1)
@@ -231,6 +233,14 @@ class DemoService(
 
     override suspend fun listPinnedMessages(conversation: Conversation): List<Message> = lock.withLock {
         messages[conversation.id].orEmpty().filter { it.pinned && !it.deleted }.sortedByDescending { it.sentAt }
+    }
+
+    override suspend fun deleteConversation(conversation: Conversation) {
+        lock.withLock {
+            conversations.remove(conversation.id)
+            messages.remove(conversation.id)
+        }
+        mutableEvents.emit(ServiceEvent.ConversationsChanged(id))
     }
 
     override suspend fun updateConversation(conversation: Conversation, update: ConversationUpdate) {
@@ -324,7 +334,7 @@ class DemoService(
                     sender = sender ?: "You",
                     text = text.takeUnless { photo },
                     attachments = if (photo) listOf(Attachment("photo-$nextId", AttachmentKind.IMAGE, contentType = "image/png", size = 70)) else emptyList(),
-                    receipt = if (sender == null) Receipt(Receipt.State.READ) else null,
+                    receipt = if (sender == null) Receipt(if (id == ServiceId.SMS) Receipt.State.DELIVERED else Receipt.State.READ) else null,
                 )
             }.toMutableList()
             // The last message replies to the one at quoteIndex.
@@ -335,7 +345,17 @@ class DemoService(
             }
         }
         when (id) {
-            ServiceId.SMS -> Unit
+            ServiceId.SMS -> {
+                chat("+447700900500", "Dentist", ConversationKind.DIRECT, unread = 1, lines = arrayOf(
+                    Triple(90, "Dentist", "Your check-up is tomorrow at 2:30pm. Reply to confirm."),
+                    Triple(80, null, "Thanks, I'll be there."),
+                    Triple(8, "Dentist", "Thank you. Please arrive ten minutes early."),
+                ))
+                chat("+447700900456", "Alex Morgan", ConversationKind.DIRECT, lines = arrayOf(
+                    Triple(240, "Alex Morgan", "Running a little late. Meet you outside the café?"),
+                    Triple(235, null, "No rush. I'll grab us a table."),
+                ))
+            }
             ServiceId.SIGNAL -> {
                 chat("maya", "Maya Chen", ConversationKind.DIRECT, unread = 2, favourite = true, quoteIndex = 1, lines = arrayOf(
                     Triple(40, "Maya Chen", "Are we still on for tomorrow?"),

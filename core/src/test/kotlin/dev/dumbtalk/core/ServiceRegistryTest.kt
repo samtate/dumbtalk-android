@@ -19,7 +19,7 @@ class ServiceRegistryTest {
     fun inboxMergesServicesWithFavouritesFirst() = runTest {
         val inbox = registry().inbox(archived = false).conversations
 
-        assertEquals(ServiceId.entries.filter { it != ServiceId.SMS }.toSet(), inbox.map { it.serviceId }.toSet())
+        assertEquals(ServiceId.entries.toSet(), inbox.map { it.serviceId }.toSet())
         val favourites = inbox.takeWhile { it.isFavourite }
         assertEquals(setOf("Maya Chen", "Family"), favourites.map { it.title }.toSet())
         val rest = inbox.drop(favourites.size)
@@ -33,7 +33,7 @@ class ServiceRegistryTest {
 
         val inbox = registry.inbox(archived = false).conversations
         assertTrue(inbox.none { it.serviceId == ServiceId.TELEGRAM })
-        assertEquals(2, registry.connected().size)
+        assertEquals(3, registry.connected().size)
     }
 
     @Test
@@ -62,6 +62,24 @@ class ServiceRegistryTest {
         val messages = service.listMessages(maya).messages
         assertEquals(Receipt.State.READ, messages.first { it.id == sent.id }.receipt?.state)
         assertEquals(Direction.INCOMING, messages.last().direction)
+    }
+
+    @Test
+    fun smsDemoIsConnectedAndUsesSmsCapabilities() = runTest {
+        val sms = DemoService(ServiceId.SMS, backgroundScope, replyDelayMillis = 10)
+        assertTrue(sms.status().connected)
+        val capabilities = sms.capabilities()
+        assertTrue(capabilities.compose && capabilities.search && capabilities.deletes)
+        assertTrue(!capabilities.replies && !capabilities.reactions && !capabilities.attachments && !capabilities.groups)
+        val chat = sms.listConversations(false).conversations.first { it.title == "Dentist" }
+        val sent = sms.sendText(chat, "Confirmed.")
+        advanceTimeBy(1_000)
+        runCurrent()
+        val messages = sms.listMessages(chat).messages
+        assertEquals(Receipt.State.DELIVERED, messages.first { it.id == sent.id }.receipt?.state)
+        assertEquals(Direction.INCOMING, messages.last().direction)
+        sms.deleteConversation(chat)
+        assertTrue(sms.listConversations(false).conversations.none { it.id == chat.id })
     }
 
     @Test
