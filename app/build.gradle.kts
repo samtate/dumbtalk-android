@@ -26,6 +26,7 @@ android {
     compileSdk = 35
 
     defaultConfig {
+        buildConfigField("boolean", "DEMO", "false")
         applicationId = "dev.dumbtalk.app"
         minSdk = 29
         targetSdk = 35
@@ -57,6 +58,14 @@ android {
     }
 
     buildTypes {
+        // A copy that installs beside the real app as <package>.demo, starts with
+        // made-up data and leaves the rest of the phone alone.
+        create("demo") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".demo"
+            buildConfigField("boolean", "DEMO", "true")
+            matchingFallbacks += listOf("debug")
+        }
         debug {
             applicationIdSuffix = ".debug"
         }

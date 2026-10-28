@@ -24,6 +24,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.LifecycleResumeEffect
+import dev.dumbtalk.app.BuildConfig
 import dev.dumbtalk.app.DumbTalkApp
 import dev.dumbtalk.app.Navigator
 import dev.dumbtalk.app.Screen
@@ -88,7 +89,7 @@ fun SettingsScreen(app: DumbTalkApp, navigator: Navigator) {
                     if (!DebugLog.share(context)) Toast.makeText(context, "No app here can share files", Toast.LENGTH_LONG).show()
                 }
             }
-            if (app.demo) SettingRow("Leave the demo", "Restart with your real services") { app.restartWithDemo(context as Activity, false) }
+            if (app.demo && !BuildConfig.DEMO) SettingRow("Leave the demo", "Restart with your real services") { app.restartWithDemo(context as Activity, false) }
             else SettingRow("Try the demo", "Restart with made-up chats; your accounts stay linked") { app.restartWithDemo(context as Activity, true) }
             SettingRow("About", "Version, source code and licences") { navigator.push(Screen.About) }
         }

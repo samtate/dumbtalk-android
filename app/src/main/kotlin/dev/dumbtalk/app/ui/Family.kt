@@ -26,9 +26,14 @@ object Family {
         SOFTKEY,
     }
 
-    /** The apps that share these choices; each also exists with a .debug suffix. */
-    private val siblings = listOf("camera", "clock", "contacts", "home", "mail", "phone", "sparky", "talk")
-        .flatMap { listOf("dev.dumb$it.app", "dev.dumb$it.app.debug") }
+    private val apps = listOf("camera", "clock", "contacts", "home", "mail", "phone", "sparky", "talk").map { "dev.dumb$it.app" }
+
+    /**
+     * The apps that share these choices with this one. Demo builds (.demo) only
+     * pair with each other, so trying them out never changes the real apps.
+     */
+    private fun siblings(context: Context): List<String> =
+        if (context.packageName.endsWith(".demo")) apps.map { "$it.demo" } else apps.flatMap { listOf(it, "$it.debug") }
 
     internal const val CHANGED = "dev.dumb.family.CHANGED"
     internal const val EXTRA_FROM = "from"
@@ -60,12 +65,12 @@ object Family {
 
     /** Takes [pkg]'s choice if it is a sibling's and newer than ours. */
     internal fun adopt(context: Context, pkg: String) {
-        if (pkg !in siblings || pkg == context.packageName) return
+        if (pkg !in siblings(context) || pkg == context.packageName) return
         val (value, at) = read(context, pkg) ?: return
         if (at > prefs(context).getLong(LEFT_KEY_AT, 0)) store(context, value, at)
     }
 
-    private fun installedSiblings(context: Context) = siblings.filter { pkg ->
+    private fun installedSiblings(context: Context) = siblings(context).filter { pkg ->
         pkg != context.packageName && runCatching { context.packageManager.getPackageInfo(pkg, 0) }.isSuccess
     }
 

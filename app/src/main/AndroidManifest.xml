@@ -40,18 +40,25 @@
     <queries>
         <package android:name="dev.dumbcamera.app" />
         <package android:name="dev.dumbcamera.app.debug" />
+        <package android:name="dev.dumbcamera.app.demo" />
         <package android:name="dev.dumbclock.app" />
         <package android:name="dev.dumbclock.app.debug" />
+        <package android:name="dev.dumbclock.app.demo" />
         <package android:name="dev.dumbcontacts.app" />
         <package android:name="dev.dumbcontacts.app.debug" />
+        <package android:name="dev.dumbcontacts.app.demo" />
         <package android:name="dev.dumbhome.app" />
         <package android:name="dev.dumbhome.app.debug" />
+        <package android:name="dev.dumbhome.app.demo" />
         <package android:name="dev.dumbmail.app" />
         <package android:name="dev.dumbmail.app.debug" />
+        <package android:name="dev.dumbmail.app.demo" />
         <package android:name="dev.dumbphone.app" />
         <package android:name="dev.dumbphone.app.debug" />
+        <package android:name="dev.dumbphone.app.demo" />
         <package android:name="dev.dumbsparky.app" />
         <package android:name="dev.dumbsparky.app.debug" />
+        <package android:name="dev.dumbsparky.app.demo" />
     </queries>
     <application
         android:name=".DumbTalkApp"

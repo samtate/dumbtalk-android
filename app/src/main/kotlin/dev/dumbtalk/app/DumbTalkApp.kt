@@ -60,7 +60,7 @@ open class DumbTalkApp : Application() {
         set(value) = prefs.edit().putBoolean(WELCOMED, value).apply()
 
     /** Demo chats stand in for the real services, so people can try the keys without linking anything. */
-    val demo: Boolean get() = prefs.getBoolean(DEMO, false)
+    val demo: Boolean get() = BuildConfig.DEMO || prefs.getBoolean(DEMO, false)
 
     /** Turns the demo on or off; the services are only built at startup, so this restarts the app. */
     fun restartWithDemo(activity: Activity, demo: Boolean) {
