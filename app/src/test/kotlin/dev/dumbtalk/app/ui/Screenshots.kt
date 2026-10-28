@@ -34,6 +34,7 @@ abstract class Screenshots {
 
     /** Starts [activity] past its first run, then runs [shots] with it open. */
     protected fun <A : Activity> launch(activity: Class<A>, shots: (ActivityScenario<A>) -> Unit) {
+        sizeCheck?.let { RuntimeEnvironment.setQualifiers(it) }
         context.getSharedPreferences("onboarding", Context.MODE_PRIVATE).edit().putBoolean("done", true).commit()
         ActivityScenario.launch(activity).use { scenario ->
             current = { code -> scenario.onActivity { it.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, code)); it.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, code)) } }
@@ -64,6 +65,13 @@ abstract class Screenshots {
 
     protected fun shoot(name: String) {
         step(500)
-        compose.onRoot().captureRoboImage("../docs/screenshots/$name.png")
+        val folder = sizeCheck?.let { "build/sizes/$it" } ?: "../docs/screenshots"
+        compose.onRoot().captureRoboImage("$folder/$name.png")
     }
+
+    /**
+     * DUMB_SCREEN=w240dp-h320dp-mdpi (any Robolectric qualifiers) draws the same
+     * screens at another size, into app/build/sizes, to check layouts hold up.
+     */
+    private val sizeCheck: String? = System.getenv("DUMB_SCREEN")?.takeIf { it.isNotBlank() }
 }
