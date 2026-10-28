@@ -10,6 +10,8 @@ account with us and no tracking.
 
 DumbTalk is unofficial and is not affiliated with Signal, Telegram or WhatsApp.
 
+Part of the Dumb family of keypad apps: [DumbPhone](https://github.com/samtate/dumbphone-android) · [DumbContacts](https://github.com/samtate/dumbcontacts-android) · **DumbTalk** · [DumbMail](https://github.com/samtate/dumbmail-android) · [DumbClock](https://github.com/samtate/dumbclock-android) · [DumbCamera](https://github.com/samtate/dumbcamera-android) · [DumbHome](https://github.com/samtate/dumbhome-android) · [DumbSparky](https://github.com/samtate/dumbsparky-android).
+
 <table>
   <tr>
     <td align="center"><img src="docs/screenshots/inbox.png" width="200"><br><sub>Unified inbox</sub></td>
@@ -34,8 +36,9 @@ also works by touch on ordinary phones.
 1. Download the APK from the [latest release](../../releases/latest), or add this repository to
    [Obtainium](https://github.com/ImranR98/Obtainium) to get updates automatically.
 2. Install it (allow installing from your browser or Obtainium when Android asks).
-3. Open DumbTalk. A short welcome explains the keys, then Android asks to allow notifications and
-   to let DumbTalk ignore battery optimisation. Allow both, or messages arrive late.
+3. Open DumbTalk. It asks which key opens menus (once for every Dumb app), a short welcome
+   explains the keys, then it asks to allow notifications and to run in the background.
+   Allow both, or messages arrive late.
 4. Choose **Connect a service**, or **Try the demo** to try the keys with made-up chats first.
 
 ## Keys
