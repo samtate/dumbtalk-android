@@ -269,6 +269,45 @@ private fun AvatarBox(title: String, bitmap: Bitmap?, size: Dp, unread: Int, not
     }
 }
 
+/**
+ * A person, or something that stands for one (a call, a chat): their avatar,
+ * name in the larger type and a [detail] line beneath. Borderless until focused.
+ */
+@Composable
+fun PersonRow(
+    title: String,
+    photoUri: String?,
+    onClick: () -> Unit,
+    onFocused: () -> Unit = {},
+    focusRequester: FocusRequester? = null,
+    trailing: @Composable (() -> Unit)? = null,
+    detail: @Composable () -> Unit,
+) {
+    Row(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 5.dp, vertical = 3.dp)
+            .focusCard(onClick, focusRequester = focusRequester, onFocused = onFocused)
+            .heightIn(min = 48.dp)
+            .padding(horizontal = 8.dp, vertical = 6.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Avatar(title, photoUri)
+        Spacer(Modifier.width(9.dp))
+        Column(Modifier.weight(1f)) {
+            BasicText(title.forDisplay(), style = Type.title, maxLines = 1, overflow = TextOverflow.Ellipsis)
+            detail()
+        }
+        trailing?.invoke()
+    }
+}
+
+/** The muted line under a [PersonRow]'s name. */
+@Composable
+fun DetailText(text: String, color: Color = Palette.muted) {
+    BasicText(text.forDisplay(), style = Type.preview.copy(color = color), maxLines = 1, overflow = TextOverflow.Ellipsis)
+}
+
 /** The two-column icon tiles used by option menus. */
 @Composable
 fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null) {

@@ -23,6 +23,9 @@ object Fonts {
 
     /** [pixelFallback] false uses the dot-matrix face with only the system fallback (tests). */
     fun init(context: Context, pixelFallback: Boolean = true) {
+        // Load the system fonts before building a chain on top of them; building
+        // first can leave font families unusable (seen under Robolectric).
+        Typeface.DEFAULT
         val chains = if (pixelFallback) runCatching { pixelChains(context) }.getOrNull() else null
         dot = chains?.first ?: FontFamily(ComposeFont(R.font.dot_matrix))
         dotBold = chains?.second ?: FontFamily(ComposeFont(R.font.dot_matrix_bold))
