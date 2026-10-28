@@ -3,6 +3,8 @@ package dev.dumbtalk.app.screens
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
+import android.content.Intent
+import android.net.Uri
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -122,6 +124,12 @@ internal fun MessageActions(
                 if (spoiler != null && !message.deleted) add(spoiler)
                 if (quote != null && !message.deleted) add(quote)
                 if (pollAction != null && !message.deleted) add(pollAction)
+                if (!message.deleted) messageLinks(message.text).forEach { link ->
+                    add(MenuItem("Open ${link.label}", AppIcon.LINK) {
+                        runCatching { context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(link.url)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+                        onClose()
+                    })
+                }
                 if (!message.deleted && capabilities.replies) add(MenuItem("Reply", AppIcon.REPLY, onReply))
                 if (!message.deleted && (message.text != null || message.attachments.isNotEmpty())) add(MenuItem("Forward", AppIcon.FORWARD, onForward))
                 add(MenuItem("Chat options", AppIcon.MENU, onChatOptions))
@@ -165,6 +173,37 @@ internal fun MessageActions(
             Spacer(Modifier.height(4.dp))
         }
     }
+}
+
+internal data class MessageLink(val url: String, val label: String)
+
+private val LINK_PATTERN = Regex("""(?i)\b(?:https?://|www\.)[^\s<>"]+""")
+
+/** The web links in [text], in order and without repeats, each with a short label for its tile. */
+internal fun messageLinks(text: String?): List<MessageLink> {
+    if (text == null) return emptyList()
+    return LINK_PATTERN.findAll(text)
+        .map { trimLinkEnd(it.value) }
+        .map { if (it.startsWith("www.", ignoreCase = true)) "https://$it" else it }
+        .distinct()
+        .map { url ->
+            val shown = url.substringAfter("://").removePrefix("www.").trimEnd('/')
+            MessageLink(url, if (shown.length > 28) shown.take(27) + "…" else shown)
+        }
+        // Tiles are told apart by label, so two long links sharing a start keep the first.
+        .distinctBy { it.label }
+        .toList()
+}
+
+/** Drops sentence punctuation after a link, and a closing bracket the link didn't open. */
+private fun trimLinkEnd(link: String): String {
+    var end = link.length
+    while (end > 0) {
+        val last = link[end - 1]
+        val unbalanced = last == ')' && link.take(end).count { it == '(' } < link.take(end).count { it == ')' }
+        if (last in ".,;:!?'\"" || unbalanced) end-- else break
+    }
+    return link.take(end)
 }
 
 /** A chat's options ([items], from [chatOptionItems] and more) and, for a group, its members. */
