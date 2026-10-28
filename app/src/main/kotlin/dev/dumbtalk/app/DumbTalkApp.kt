@@ -101,8 +101,6 @@ open class DumbTalkApp : Application() {
             TelegramService(
                 TelegramConfig(
                     dataDir = File(filesDir, "telegram"),
-                    apiId = BuildConfig.TELEGRAM_API_ID,
-                    apiHash = BuildConfig.TELEGRAM_API_HASH,
                     deviceModel = "${Build.MANUFACTURER} ${Build.MODEL}".trim(),
                     systemVersion = "Android ${Build.VERSION.RELEASE}",
                     appVersion = BuildConfig.VERSION_NAME,

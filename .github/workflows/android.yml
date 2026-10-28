@@ -15,9 +15,6 @@ permissions:
 jobs:
   build:
     runs-on: ubuntu-latest
-    env:
-      # versionCode: rises with every run, so each APK installs over the last.
-      DUMBTALK_BUILD_NUMBER: ${{ github.run_number }}
     steps:
       # The NDK, Go, the Rust build and Robolectric fill the runner's disk;
       # these preinstalled toolchains are unused here.
@@ -32,6 +29,8 @@ jobs:
         run: |
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then version="${GITHUB_REF_NAME#v}"; else version="dev-${GITHUB_SHA::7}"; fi
           echo "DUMBTALK_VERSION=$version" >> "$GITHUB_ENV"
+          # Match local release builds so CI updates can install over them.
+          echo "DUMBTALK_BUILD_NUMBER=$(date +%s)" >> "$GITHUB_ENV"
 
       - uses: gradle/actions/wrapper-validation@v4
 

@@ -220,13 +220,25 @@ Debug builds are a separate app (`dev.dumbtalk.app.debug`) signed with a committ
 install over each other and alongside a release. Local builds have version code 1; to install one
 over a newer CI build use `adb install -r -d`.
 
-To skip typing Telegram credentials on the phone during development, put your own in
-`local.properties` (never committed):
+Telegram credentials are entered only on the phone when linking. Builds never read API IDs or
+hashes from environment variables or `local.properties`, so local APKs can be shared without
+including the developer's credentials. Previously linked local builds that relied on embedded
+credentials may ask you to enter them once; keep the app's data when updating.
 
-```properties
-telegram.api_id=12345678
-telegram.api_hash=0123456789abcdef0123456789abcdef
+### Local signed builds
+
+Until CI is available, build and verify a signed APK locally:
+
+```sh
+DUMBTALK_VERSION=0.1.0-alpha.1 scripts/build-local-release.sh
 ```
+
+The script reads signing variables from `~/.config/dumbtalk/release.env` (or
+`DUMBTALK_SIGNING_ENV`), runs the core/app tests, builds all APK variants, checks them for local
+Telegram credentials and verifies the release signature. It writes the release APK and SHA-256
+checksum to `app/build/outputs/local-release/`. The private keystore and passwords stay outside
+this repository. Keep an offline backup of both: future updates must use the same signing key.
+Do not distribute the debug APK as a production release; its signing key is public.
 
 The screenshots above use made-up data from all four demo services. `KeypadFlowTest` drives
 both messaging and SMS flows with hardware key events at 640×960. Refresh them with:
@@ -243,7 +255,8 @@ SMS permissions or default-app changes are needed.
 
 CI tests and builds a debug APK on every push. Pushing a `v*` tag (for example `v0.1.0`) also
 builds a signed release APK and publishes it as a GitHub release; the version name comes from the
-tag. Release signing needs the repository secrets `DUMBTALK_KEYSTORE_BASE64`,
+tag. Local release builds and CI both use build-time epoch seconds for version codes, so later
+CI releases can update a locally built release. Release signing needs the repository secrets `DUMBTALK_KEYSTORE_BASE64`,
 `DUMBTALK_KEYSTORE_PASSWORD`, `DUMBTALK_KEY_ALIAS` and `DUMBTALK_KEY_PASSWORD`. TDLib is built by
 its own workflow only when `tdlib.properties` changes.
 

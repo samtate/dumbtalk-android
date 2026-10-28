@@ -44,14 +44,11 @@ import kotlinx.coroutines.withTimeoutOrNull
 import org.drinkless.tdlib.TdApi
 
 /**
- * Where TDLib keeps its data and how this app identifies itself. [apiId] and
- * [apiHash] come from the build; when they're missing, setup asks for them
- * and stores them in [dataDir].
+ * Where TDLib keeps its data and how this device identifies itself. Setup asks
+ * for the user's API ID/hash and stores them in [dataDir]; APKs contain none.
  */
 class TelegramConfig(
     val dataDir: File,
-    val apiId: Int,
-    val apiHash: String,
     val deviceModel: String,
     val systemVersion: String,
     val appVersion: String,
@@ -99,7 +96,6 @@ class TelegramService(private val config: TelegramConfig, private val scope: Cor
     // region Credentials and client lifecycle
 
     private fun credentials(): Pair<Int, String>? {
-        if (config.apiId > 0 && config.apiHash.isNotBlank()) return config.apiId to config.apiHash
         if (!credentialsFile.exists()) return null
         val properties = Properties().apply { credentialsFile.inputStream().use(::load) }
         val apiId = properties.getProperty("api_id")?.toIntOrNull() ?: return null

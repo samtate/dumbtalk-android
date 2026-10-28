@@ -1,5 +1,3 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
@@ -7,17 +5,11 @@ plugins {
     alias(libs.plugins.roborazzi)
 }
 
-// Telegram app credentials (my.telegram.org): TELEGRAM_API_ID/TELEGRAM_API_HASH
-// from the environment (CI secrets) or telegram.api_id/telegram.api_hash in
-// local.properties. Without them, setup asks on the phone.
-val localProperties = Properties().apply {
-    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use(::load)
-}
-val telegramApiId = System.getenv("TELEGRAM_API_ID") ?: localProperties.getProperty("telegram.api_id") ?: "0"
-val telegramApiHash = System.getenv("TELEGRAM_API_HASH") ?: localProperties.getProperty("telegram.api_hash") ?: ""
+// Telegram credentials are entered on the device and never compiled into an APK.
 
-// CI sets these: the tag without its "v" for releases, and the run number so
-// every build installs over the last. Local builds are 1 / "dev".
+// Release scripts and CI use a version plus an epoch-seconds versionCode, so
+// switching between local and CI releases keeps updates increasing. Manual
+// development builds default to 1 / "dev".
 val buildNumber = System.getenv("DUMBTALK_BUILD_NUMBER")?.toIntOrNull() ?: 1
 val buildVersion = System.getenv("DUMBTALK_VERSION")?.takeIf { it.isNotBlank() } ?: "dev"
 
@@ -33,8 +25,6 @@ android {
         versionCode = buildNumber
         versionName = buildVersion
         ndk { abiFilters += "arm64-v8a" }
-        buildConfigField("int", "TELEGRAM_API_ID", telegramApiId.ifBlank { "0" })
-        buildConfigField("String", "TELEGRAM_API_HASH", "\"$telegramApiHash\"")
     }
 
     signingConfigs {
