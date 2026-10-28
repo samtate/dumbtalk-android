@@ -18,6 +18,9 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
@@ -308,9 +311,9 @@ fun DetailText(text: String, color: Color = Palette.muted) {
     BasicText(text.forDisplay(), style = Type.preview.copy(color = color), maxLines = 1, overflow = TextOverflow.Ellipsis)
 }
 
-/** The two-column icon tiles used by option menus. */
+/** The two-column icon tiles used by option menus; [value] is a current setting shown beneath. */
 @Composable
-fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null) {
+fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifier = Modifier, focusRequester: FocusRequester? = null, value: String? = null) {
     Row(
         modifier
             .heightIn(min = 42.dp)
@@ -320,7 +323,10 @@ fun MenuTile(label: String, icon: AppIcon, onClick: () -> Unit, modifier: Modifi
         horizontalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         Icon(icon, size = 18.dp)
-        BasicText(label, style = Type.label, maxLines = 2)
+        Column {
+            BasicText(label, style = Type.label, maxLines = 2)
+            if (value != null) BasicText(value.forDisplay(), style = Type.small, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        }
     }
 }
 
@@ -478,7 +484,13 @@ fun CenteredMessage(text: String, modifier: Modifier = Modifier, color: Color = 
     }
 }
 
-class MenuItem(val label: String, val icon: AppIcon, val onClick: () -> Unit)
+class MenuItem(val label: String, val icon: AppIcon, val onClick: () -> Unit) {
+    /** A current setting shown under the label ("Flash · Auto"). */
+    var value: String? = null
+        private set
+
+    constructor(label: String, icon: AppIcon, value: String?, onClick: () -> Unit) : this(label, icon, onClick) { this.value = value }
+}
 
 /** Two-column tile grid; the first tile takes [requester]. */
 @Composable
@@ -488,7 +500,7 @@ fun MenuGrid(items: List<MenuItem>, requester: FocusRequester? = null) {
             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 pair.forEachIndexed { column, item ->
                     MenuTile(item.label, item.icon, item.onClick, Modifier.weight(1f),
-                        focusRequester = if (row == 0 && column == 0) requester else null)
+                        focusRequester = if (row == 0 && column == 0) requester else null, value = item.value)
                 }
                 if (pair.size == 1) Spacer(Modifier.weight(1f))
             }
@@ -566,4 +578,43 @@ fun SectionTitle(text: String, modifier: Modifier = Modifier) {
 @Composable
 fun ErrorText(text: String, modifier: Modifier = Modifier) {
     BasicText(text, style = Type.small.copy(color = Palette.error), modifier = modifier.padding(horizontal = 10.dp, vertical = 4.dp))
+}
+
+/**
+ * The Menu the left key opens, laid out the same in every app: what can be
+ * done to the selected thing first, under its kind and name ([selection],
+ * e.g. "Call · Maya Chen"), then what the app itself offers, under [app].
+ * Focus starts on the first tile.
+ */
+@Composable
+fun MenuPage(
+    app: String,
+    appItems: List<MenuItem>,
+    onBack: () -> Unit,
+    selection: String? = null,
+    selectionItems: List<MenuItem> = emptyList(),
+    title: String = "Menu",
+) {
+    val focus = remember { FocusRequester() }
+    FocusOnStart(focus)
+    Softkeys(center = SoftkeyAction("Select"), right = SoftkeyAction("Back", onBack))
+    val selected = selection != null && selectionItems.isNotEmpty()
+    Column(Modifier.fillMaxSize()) {
+        Header(title)
+        Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
+            if (selected) {
+                MenuSection(selection!!)
+                MenuGrid(selectionItems, focus)
+                Spacer(Modifier.height(10.dp))
+            }
+            MenuSection(app)
+            MenuGrid(appItems, focus.takeIf { !selected })
+        }
+    }
+}
+
+/** A heading over one group of menu tiles. */
+@Composable
+fun MenuSection(text: String) {
+    BasicText(text.uppercase().forDisplay(), style = Type.section, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
 }

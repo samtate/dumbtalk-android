@@ -1,5 +1,7 @@
 package dev.dumbtalk.app.screens
 
+import androidx.compose.foundation.layout.height
+import dev.dumbtalk.app.ui.MenuSection
 import android.util.Log
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -114,42 +116,33 @@ fun MenuScreen(app: DumbTalkApp, navigator: Navigator, screen: Screen.Menu) {
         onPins = { navigator.push(Screen.ChatTools(selected, ChatTool.PINS)) },
         deleteThread = capabilities.deleteConversations, onDeleteThread = { showDeleteThread = true },
     ) else emptyList()
-    val restoreChatAction = chatItems.any { it.label == focusedLabel }
+    val appItems = buildList {
+        add(MenuItem("New message", AppIcon.COMPOSE) { navigator.replace(Screen.NewMessage) })
+        add(MenuItem("Search", AppIcon.SEARCH) { navigator.replace(Screen.Search) })
+        add(
+            if (screen.archived) MenuItem("Inbox", AppIcon.ARCHIVE) { navigator.pop(); navigator.pop() }
+            else MenuItem("Archived", AppIcon.ARCHIVE) { navigator.replace(Screen.Inbox(archived = true)) },
+        )
+        add(MenuItem("Settings", AppIcon.SETTINGS) { navigator.push(Screen.Settings) })
+        // Last, so the tiles above keep their places for muscle memory.
+        if (canGroup) add(MenuItem("New group", AppIcon.GROUP) { navigator.replace(Screen.NewGroup) })
+    }
+    // A tile focused before (a chat action, or the app's) keeps focus; otherwise the chat's first.
+    val restoreAppAction = appItems.any { it.label == focusedLabel }
     Column(Modifier.fillMaxSize()) {
         Header("Menu")
         Column(Modifier.verticalScroll(rememberScrollState()).padding(8.dp)) {
-            BasicText("APP", style = Type.section, modifier = Modifier.padding(start = 2.dp, bottom = 6.dp))
-            MenuGrid(
-                buildList {
-                    add(MenuItem("New message", AppIcon.COMPOSE) { navigator.replace(Screen.NewMessage) })
-                    add(MenuItem("Search", AppIcon.SEARCH) { navigator.replace(Screen.Search) })
-                    add(
-                        if (screen.archived) MenuItem("Inbox", AppIcon.ARCHIVE) { navigator.pop(); navigator.pop() }
-                        else MenuItem("Archived", AppIcon.ARCHIVE) { navigator.replace(Screen.Inbox(archived = true)) },
-                    )
-                    add(MenuItem("Settings", AppIcon.SETTINGS) { navigator.push(Screen.Settings) })
-                    // Last, so the tiles above keep their places for muscle memory.
-                    if (canGroup) add(MenuItem("New group", AppIcon.GROUP) { navigator.replace(Screen.NewGroup) })
-                },
-                requester.takeUnless { restoreChatAction }, focusedLabel, { focusedLabel = it },
-            )
             if (selected != null) {
-                BasicText(
-                    "CHAT · ${selected.title}",
-                    style = Type.section,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    modifier = Modifier.padding(start = 2.dp, top = 10.dp, bottom = 6.dp),
-                )
-                MenuGrid(
-                    chatItems,
-                    requester.takeIf { restoreChatAction }, focusedLabel, { focusedLabel = it },
-                )
+                MenuSection("Chat · ${selected.title}")
+                MenuGrid(chatItems, requester.takeUnless { restoreAppAction }, focusedLabel, { focusedLabel = it })
                 if (selected.kind == ConversationKind.GROUP && selected.members.isNotEmpty()) {
                     BasicText("MEMBERS", style = Type.section, modifier = Modifier.padding(top = 10.dp, bottom = 4.dp))
                     selected.members.forEach { BasicText(it.name, style = Type.body, modifier = Modifier.padding(vertical = 2.dp)) }
                 }
+                Spacer(Modifier.height(10.dp))
             }
+            MenuSection("DumbTalk")
+            MenuGrid(appItems, requester.takeIf { selected == null || restoreAppAction }, focusedLabel, { focusedLabel = it })
         }
     }
 }

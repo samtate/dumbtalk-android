@@ -17,6 +17,8 @@ class KeypadFlowTest : KeypadTest() {
         // Second row is Family (favourite); Left opens the menu for it.
         press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("Unstar")
+        waitFor("CHAT · FAMILY")
+        waitFor("DUMBTALK")
         shoot("menu")
 
         // Back returns to the inbox and the centre key opens Family.
@@ -68,7 +70,11 @@ class KeypadFlowTest : KeypadTest() {
         // Open Settings from the menu, then Services.
         press(KeyEvent.KEYCODE_DPAD_LEFT)
         waitFor("Settings")
-        press(KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_RIGHT, KeyEvent.KEYCODE_DPAD_CENTER)
+        // The selected chat's section now precedes app actions. Focus Settings
+        // directly so this walkthrough does not depend on the chat's tile count.
+        compose.onNode(hasText("Settings")).requestFocus()
+        step()
+        press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("Services")
         press(KeyEvent.KEYCODE_DPAD_CENTER)
         waitFor("+15550100999")
